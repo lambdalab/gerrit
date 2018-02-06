@@ -40,12 +40,18 @@
       commentSide: String,
       patchNum: String,
       path: String,
-      projectConfig: Object,
+      projectName: {
+        type: String,
+        observer: '_projectNameChanged',
+      },
       isOnParent: {
         type: Boolean,
         value: false,
       },
-
+      parentIndex: {
+        type: Number,
+        value: null,
+      },
       _showActions: Boolean,
       _lastComment: Object,
       _orderedComments: Array,
@@ -53,6 +59,7 @@
         type: Boolean,
         notify: true,
       },
+      _projectConfig: Object,
     },
 
     behaviors: [
@@ -109,6 +116,10 @@
 
     _commentsChanged(changeRecord) {
       this._orderedComments = this._sortedComments(this.comments);
+      this.updateThreadProperties();
+    },
+
+    updateThreadProperties() {
       if (this._orderedComments.length) {
         this._lastComment = this._getLastComment();
         this._unresolved = this._lastComment.unresolved;
@@ -145,18 +156,21 @@
     },
 
     /**
-     * Sets the initial state of the comment thread to have the last
-     * {UNRESOLVED_EXPAND_COUNT} comments expanded by default if the
-     * thread is unresolved.
+     * Sets the initial state of the comment thread.
+     * Expands the thread if one of the following is true:
+     * - last {UNRESOLVED_EXPAND_COUNT} comments expanded by default if the
+     * thread is unresolved,
+     * - it's a robot comment.
      */
     _setInitialExpandedState() {
-      let comment;
       if (this._orderedComments) {
         for (let i = 0; i < this._orderedComments.length; i++) {
-          comment = this._orderedComments[i];
-          comment.collapsed =
-              this._orderedComments.length - i - 1 >= UNRESOLVED_EXPAND_COUNT ||
-              !this._unresolved;
+          const comment = this._orderedComments[i];
+          const isRobotComment = !!comment.robot_id;
+          // False if it's an unresolved comment under UNRESOLVED_EXPAND_COUNT.
+          const resolvedThread = !this._unresolved ||
+                this._orderedComments.length - i - 1 >= UNRESOLVED_EXPAND_COUNT;
+          comment.collapsed = !isRobotComment && resolvedThread;
         }
       }
     },
@@ -166,7 +180,7 @@
         const c1Date = c1.__date || util.parseDate(c1.updated);
         const c2Date = c2.__date || util.parseDate(c2.updated);
         const dateCompare = c1Date - c2Date;
-        if (!c1.id || !c1.id.localeCompare) { return 0; }
+        if (dateCompare === 0 && (!c1.id || !c1.id.localeCompare)) { return 0; }
         // If same date, fall back to sorting by id.
         return dateCompare ? dateCompare : c1.id.localeCompare(c2.id);
       });
@@ -209,6 +223,9 @@
       return !!comment.__draft;
     },
 
+    /**
+     * @param {boolean=} opt_quote
+     */
     _processCommentReply(opt_quote) {
       const comment = this._lastComment;
       let quoteStr;
@@ -269,6 +286,10 @@
       return d;
     },
 
+    /**
+     * @param {number=} opt_lineNum
+     * @param {!Object=} opt_range
+     */
     _newDraft(opt_lineNum, opt_range) {
       const d = {
         __draft: true,
@@ -289,6 +310,9 @@
           end_line: opt_range.endLine,
           end_character: opt_range.endChar,
         };
+      }
+      if (this.parentIndex) {
+        d.parent = this.parentIndex;
       }
       return d;
     },
@@ -336,6 +360,11 @@
         return;
       }
       this.set(['comments', index], comment);
+      // Because of the way we pass these comment objects around by-ref, in
+      // combination with the fact that Polymer does dirty checking in
+      // observers, the this.set() call above will not cause a thread update in
+      // some situations.
+      this.updateThreadProperties();
     },
 
     _indexOf(comment, arr) {
@@ -351,6 +380,17 @@
 
     _computeHostClass(unresolved) {
       return unresolved ? 'unresolved' : '';
+    },
+
+    /**
+     * Load the project config when a project name has been provided.
+     * @param {string} name The project name.
+     */
+    _projectNameChanged(name) {
+      if (!name) { return; }
+      this.$.restAPI.getProjectConfig(name).then(config => {
+        this._projectConfig = config;
+      });
     },
   });
 })();

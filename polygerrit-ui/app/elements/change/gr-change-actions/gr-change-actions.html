@@ -14,21 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+
 <link rel="import" href="../../../behaviors/gr-patch-set-behavior/gr-patch-set-behavior.html">
 <link rel="import" href="../../../behaviors/rest-client-behavior/rest-client-behavior.html">
-<link rel="import" href="../../../bower_components/polymer/polymer.html">
 <link rel="import" href="../../../bower_components/iron-input/iron-input.html">
-
 <link rel="import" href="../../core/gr-navigation/gr-navigation.html">
-
+<link rel="import" href="../../core/gr-reporting/gr-reporting.html">
 <link rel="import" href="../../shared/gr-button/gr-button.html">
 <link rel="import" href="../../shared/gr-dropdown/gr-dropdown.html">
 <link rel="import" href="../../shared/gr-js-api-interface/gr-js-api-interface.html">
 <link rel="import" href="../../shared/gr-overlay/gr-overlay.html">
 <link rel="import" href="../../shared/gr-rest-api-interface/gr-rest-api-interface.html">
-
 <link rel="import" href="../gr-confirm-abandon-dialog/gr-confirm-abandon-dialog.html">
 <link rel="import" href="../gr-confirm-cherrypick-dialog/gr-confirm-cherrypick-dialog.html">
+<link rel="import" href="../gr-confirm-move-dialog/gr-confirm-move-dialog.html">
 <link rel="import" href="../gr-confirm-rebase-dialog/gr-confirm-rebase-dialog.html">
 <link rel="import" href="../gr-confirm-revert-dialog/gr-confirm-revert-dialog.html">
 <link rel="import" href="../../../styles/shared-styles.html">
@@ -37,33 +37,36 @@ limitations under the License.
   <template>
     <style include="shared-styles">
       :host {
-        display: inline-block;
+        display: flex;
         font-family: var(--font-family);
       }
+      #actionLoadingMessage,
+      #mainContent,
       section {
-        display: inline-block;
+        display: flex;
       }
+      #actionLoadingMessage,
       gr-button,
       gr-dropdown {
-        margin-left: .5em;
-      }
-      gr-button:before {
-        content: attr(data-label);
+        /* px because don't have the same font size */
+        margin-left: 12px;
       }
       #actionLoadingMessage {
+        align-items: center;
         color: #777;
       }
       @media screen and (max-width: 50em) {
-        :host,
+        #mainContent,
         section,
         gr-button,
         gr-dropdown {
           display: block;
+          flex: 1;
         }
         gr-button,
         gr-dropdown {
-          margin-bottom: .5em;
-          margin-left: 0;
+          /* px because don't have the same font size */
+          margin: 0 0 6px 0;
         }
         .confirmDialog {
           width: 90vw;
@@ -73,13 +76,47 @@ limitations under the License.
           margin: .5em;
           text-align: center;
         }
+        #mainContent.mobileOverlayOpened {
+          display: none;
+        }
       }
     </style>
-    <div>
+    <div id="mainContent">
       <span
           id="actionLoadingMessage"
           hidden$="[[!_actionLoadingMessage]]">
         [[_actionLoadingMessage]]</span>
+        <section id="primaryActions"
+            hidden$="[[_shouldHideActions(_topLevelActions.*, _loading)]]">
+          <template
+              is="dom-repeat"
+              items="[[_topLevelPrimaryActions]]"
+              as="action">
+            <gr-button title$="[[action.title]]"
+                primary$="[[action.__primary]]"
+                data-action-key$="[[action.__key]]"
+                data-action-type$="[[action.__type]]"
+                data-label$="[[action.label]]"
+                disabled$="[[_calculateDisabled(action, _hasKnownChainState)]]"
+                on-tap="_handleActionTap">[[action.label]]</gr-button>
+          </template>
+        </section>
+        <section id="secondaryActions"
+            hidden$="[[_shouldHideActions(_topLevelActions.*, _loading)]]">
+          <template
+              is="dom-repeat"
+              items="[[_topLevelSecondaryActions]]"
+              as="action">
+            <gr-button title$="[[action.title]]"
+                primary$="[[action.__primary]]"
+                data-action-key$="[[action.__key]]"
+                data-action-type$="[[action.__type]]"
+                data-label$="[[action.label]]"
+                disabled$="[[_calculateDisabled(action, _hasKnownChainState)]]"
+                on-tap="_handleActionTap">[[action.label]]</gr-button>
+          </template>
+        </section>
+      <gr-button hidden$="[[!_loading]]" disabled>Loading actions...</gr-button>
       <gr-dropdown
           id="moreActions"
           tabindex="0"
@@ -90,25 +127,11 @@ limitations under the License.
           hidden$="[[_shouldHideActions(_menuActions.*, _loading)]]"
           disabled-ids="[[_disabledMenuActions]]"
           items="[[_menuActions]]">More</gr-dropdown>
-      <section hidden$="[[_shouldHideActions(_topLevelActions.*, _loading)]]">
-        <template
-            is="dom-repeat"
-            items="[[_topLevelActions]]"
-            as="action">
-          <gr-button title$="[[action.title]]"
-              primary$="[[action.__primary]]"
-              data-action-key$="[[action.__key]]"
-              data-action-type$="[[action.__type]]"
-              data-label$="[[action.label]]"
-              disabled$="[[_calculateDisabled(action, _hasKnownChainState)]]"
-              on-tap="_handleActionTap"></gr-button>
-        </template>
-      </section>
-      <gr-button hidden$="[[!_loading]]" disabled>Loading actions...</gr-button>
     </div>
     <gr-overlay id="overlay" with-backdrop>
       <gr-confirm-rebase-dialog id="confirmRebase"
           class="confirmDialog"
+          change-number="[[change._number]]"
           on-confirm="_handleRebaseConfirm"
           on-cancel="_handleConfirmDialogCancel"
           branch="[[change.branch]]"
@@ -122,7 +145,14 @@ limitations under the License.
           commit-num="[[commitNum]]"
           on-confirm="_handleCherrypickConfirm"
           on-cancel="_handleConfirmDialogCancel"
+          project="[[change.project]]"
           hidden></gr-confirm-cherrypick-dialog>
+      <gr-confirm-move-dialog id="confirmMove"
+          class="confirmDialog"
+          on-confirm="_handleMoveConfirm"
+          on-cancel="_handleConfirmDialogCancel"
+          project="[[change.project]]"
+          hidden></gr-confirm-move-dialog>
       <gr-confirm-revert-dialog id="confirmRevertDialog"
           class="confirmDialog"
           on-confirm="_handleRevertDialogConfirm"
@@ -139,16 +169,30 @@ limitations under the License.
           confirm-label="Delete"
           on-cancel="_handleConfirmDialogCancel"
           on-confirm="_handleDeleteConfirm">
-        <div class="header">
+        <div class="header" slot="header">
           Delete Change
         </div>
-        <div class="main">
+        <div class="main" slot="main">
           Do you really want to delete the change?
+        </div>
+      </gr-confirm-dialog>
+      <gr-confirm-dialog
+          id="confirmDeleteEditDialog"
+          class="confirmDialog"
+          confirm-label="Delete"
+          on-cancel="_handleConfirmDialogCancel"
+          on-confirm="_handleDeleteEditConfirm">
+        <div class="header" slot="header">
+          Delete Change Edit
+        </div>
+        <div class="main" slot="main">
+          Do you really want to delete the edit?
         </div>
       </gr-confirm-dialog>
     </gr-overlay>
     <gr-js-api-interface id="jsAPI"></gr-js-api-interface>
     <gr-rest-api-interface id="restAPI"></gr-rest-api-interface>
+    <gr-reporting id="reporting" category="change-actions"></gr-reporting>
   </template>
   <script src="gr-change-actions.js"></script>
 </dom-module>

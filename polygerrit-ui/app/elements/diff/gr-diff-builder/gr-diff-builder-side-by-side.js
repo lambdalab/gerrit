@@ -17,8 +17,10 @@
   // Prevent redefinition.
   if (window.GrDiffBuilderSideBySide) { return; }
 
-  function GrDiffBuilderSideBySide(diff, comments, prefs, outputEl, layers) {
-    GrDiffBuilder.call(this, diff, comments, prefs, outputEl, layers);
+  function GrDiffBuilderSideBySide(
+      diff, comments, prefs, projectName, outputEl, layers) {
+    GrDiffBuilder.call(
+        this, diff, comments, prefs, projectName, outputEl, layers);
   }
   GrDiffBuilderSideBySide.prototype = Object.create(GrDiffBuilder.prototype);
   GrDiffBuilderSideBySide.prototype.constructor = GrDiffBuilderSideBySide;
@@ -44,8 +46,12 @@
     const width = fontSize * 4;
     const colgroup = document.createElement('colgroup');
 
+    // Add the blame column.
+    let col = this._createElement('col', 'blame');
+    colgroup.appendChild(col);
+
     // Add left-side line number.
-    let col = document.createElement('col');
+    col = document.createElement('col');
     col.setAttribute('width', width);
     colgroup.appendChild(col);
 
@@ -70,6 +76,8 @@
     row.setAttribute('left-type', leftLine.type);
     row.setAttribute('right-type', rightLine.type);
     row.tabIndex = -1;
+
+    row.appendChild(this._createBlameCell(leftLine));
 
     this._appendPair(section, row, leftLine, leftLine.beforeNumber,
         GrDiffBuilder.Side.LEFT);

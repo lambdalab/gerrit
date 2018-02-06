@@ -15,6 +15,7 @@ limitations under the License.
 -->
 
 <link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../../bower_components/paper-toggle-button/paper-toggle-button.html">
 <link rel="import" href="../../core/gr-reporting/gr-reporting.html">
 <link rel="import" href="../../shared/gr-button/gr-button.html">
 <link rel="import" href="../gr-message/gr-message.html">
@@ -28,11 +29,15 @@ limitations under the License.
         display: block;
       }
       .header {
+        align-items: center;
+        background-color: #fafafa;
+        border-bottom: 1px solid #ddd;
+        border-top: 1px solid #ddd;
         display: flex;
         justify-content: space-between;
-        margin-bottom: .35em;
+        min-height: 3.2em;
+        padding: .5em var(--default-horizontal-margin);
       }
-      .header,
       #messageControlsContainer {
         padding: 0 var(--default-horizontal-margin);
       }
@@ -45,30 +50,37 @@ limitations under the License.
       }
       #messageControlsContainer {
         align-items: center;
-        background-color: #fef;
+        border-bottom: 1px solid #ddd;
         display: flex;
+        height: 2.25em;
         justify-content: center;
       }
       #messageControlsContainer gr-button {
-        padding: 0.4em;
+        padding: 0.4em 0;
+      }
+      .container {
+        align-items: center;
+        display: flex;
       }
     </style>
     <div class="header">
       <h3>Messages</h3>
-      <div class="messageListControls">
-        <gr-button id="collapse-messages" link
+      <div class="messageListControls container">
+        <span
+            id="automatedMessageToggleContainer"
+            class="container"
+            hidden$="[[!_hasAutomatedMessages(messages)]]">
+          <paper-toggle-button
+              id="automatedMessageToggle"
+              checked="{{_hideAutomated}}"></paper-toggle-button>Only comments
+          <span class="transparent separator"></span>
+        </span>
+        <gr-button
+            id="collapse-messages"
+            link
             on-tap="_handleExpandCollapseTap">
           [[_computeExpandCollapseMessage(_expanded)]]
         </gr-button>
-        <span
-            id="automatedMessageToggleContainer"
-            hidden$="[[!_hasAutomatedMessages(messages)]]">
-          /
-          <gr-button id="automatedMessageToggle" link
-              on-tap="_handleAutomatedMessageToggleTap">
-            [[_computeAutomatedToggleText(_hideAutomated)]]
-          </gr-button>
-        </span>
       </div>
     </div>
     <span
@@ -78,8 +90,9 @@ limitations under the License.
           [[_computeNumMessagesText(_visibleMessages, _processedMessages, _hideAutomated, _visibleMessages.length)]]
       </gr-button>
       <span
+          class="container"
           hidden$="[[_computeIncrementHidden(_visibleMessages, _processedMessages, _hideAutomated, _visibleMessages.length)]]">
-        /
+        <span class="transparent separator"></span>
         <gr-button id="incrementMessagesBtn" link
             on-tap="_handleIncrementShownMessages">
           [[_computeIncrementText(_visibleMessages, _processedMessages, _hideAutomated, _visibleMessages.length)]]
@@ -93,9 +106,9 @@ limitations under the License.
       <gr-message
           change-num="[[changeNum]]"
           message="[[message]]"
-          comments="[[_computeCommentsForMessage(comments, message)]]"
+          comments="[[_computeCommentsForMessage(changeComments, message)]]"
           hide-automated="[[_hideAutomated]]"
-          project-config="[[projectConfig]]"
+          project-name="[[projectName]]"
           show-reply-button="[[showReplyButtons]]"
           on-scroll-to="_handleScrollTo"
           data-message-id$="[[message.id]]"></gr-message>

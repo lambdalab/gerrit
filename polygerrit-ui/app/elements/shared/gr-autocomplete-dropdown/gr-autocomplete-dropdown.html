@@ -15,7 +15,9 @@ limitations under the License.
 -->
 
 <link rel="import" href="../../../bower_components/polymer/polymer.html">
+
 <link rel="import" href="../../../behaviors/keyboard-shortcut-behavior/keyboard-shortcut-behavior.html">
+<link rel="import" href="../../../bower_components/iron-dropdown/iron-dropdown.html">
 <link rel="import" href="../../shared/gr-cursor-manager/gr-cursor-manager.html">
 <script src="../../../scripts/rootElement.js"></script>
 <link rel="import" href="../../../styles/shared-styles.html">
@@ -24,16 +26,10 @@ limitations under the License.
   <template>
     <style include="shared-styles">
       :host {
-        background: #fff;
-        box-shadow: rgba(0, 0, 0, 0.3) 0 1px 3px;
-        position: absolute;
-        z-index: 104;
+        z-index: 100;
       }
-      /* This must be set here vs. the container component because in some cases
-      the element is moved in the DOM to a base element and is no longer a
-      child of its original parent. */
-      :host(.fixed){
-        position: fixed;
+      :host([is-hidden]) {
+        display: none;
       }
       ul {
         list-style: none;
@@ -48,8 +44,16 @@ limitations under the License.
       li.selected {
         background-color: #eee;
       }
+      .dropdown-content {
+        background: #fff;
+        box-shadow: rgba(0, 0, 0, 0.3) 0 1px 3px;
+      }
     </style>
-    <div id="suggestions" role="listbox">
+    <div
+        class="dropdown-content"
+        slot="dropdown-content"
+        id="suggestions"
+        role="listbox">
       <ul>
         <template is="dom-repeat" items="[[suggestions]]">
           <li data-index$="[[index]]"

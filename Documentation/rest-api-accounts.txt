@@ -63,7 +63,9 @@ for each account.
 
 [[all-emails]]
 --
-* `ALL_EMAILS`: Includes all registered emails.
+* `ALL_EMAILS`: Includes all registered emails. Requires the caller
+to have the link:access-control.html#capability_modifyAccount[Modify
+Account] global capability.
 --
 
 [[suggest-account]]
@@ -78,6 +80,10 @@ link:#all-emails[all emails] are always returned.
 ----
   GET /accounts/?suggest&q=John HTTP/1.0
 ----
+
+Secondary emails are only included if the calling user has the
+link:access-control.html#capability_modifyAccount[Modify Account]
+capability.
 
 .Response
 ----
@@ -1256,10 +1262,6 @@ any account.
         "name": "Changes"
       },
       {
-        "url": "#/q/owner:self+is:draft",
-        "name": "Drafts"
-      },
-      {
         "url": "#/q/has:draft",
         "name": "Draft Comments"
       },
@@ -1314,10 +1316,6 @@ link:#preferences-input[PreferencesInput] entity.
         "name": "Changes"
       },
       {
-        "url": "#/q/owner:self+is:draft",
-        "name": "Drafts"
-      },
-      {
         "url": "#/q/has:draft",
         "name": "Draft Comments"
       },
@@ -1368,10 +1366,6 @@ link:#preferences-info[PreferencesInfo] entity.
       {
         "url": "#/dashboard/self",
         "name": "Changes"
-      },
-      {
-        "url": "#/q/owner:self+is:draft",
-        "name": "Drafts"
       },
       {
         "url": "#/q/has:draft",
@@ -1527,6 +1521,7 @@ link:#edit-preferences-info[EditPreferencesInfo] entity.
     "hide_line_numbers": true,
     "match_brackets": true,
     "line_wrapping": false,
+    "indent_with_tabs": false,
     "auto_close_brackets": true
   }
 ----
@@ -1760,9 +1755,9 @@ Only external ids belonging to the caller may be deleted.
   POST /a/accounts/self/external.ids:delete HTTP/1.0
   Content-Type: application/json;charset=UTF-8
 
-  {
+  [
     "mailto:john.doe@example.com"
-  }
+  ]
 ----
 
 .Response
@@ -2127,6 +2122,8 @@ AccountInfo]. In addition `AccountDetailInfo` has the following fields:
 |`registered_on`     ||
 The link:rest-api.html#timestamp[timestamp] of when the account was
 registered.
+|`inactive`          |not set if `false`|
+Whether the account is inactive.
 |=================================
 
 [[account-external-id-info]]
@@ -2168,7 +2165,10 @@ ALL_EMAILS] for account queries.
 |`secondary_emails`|optional|
 A list of the secondary email addresses of the user. +
 Only set for account queries when the link:#all-emails[ALL_EMAILS]
-option is set.
+option or the link:#suggest-account[suggest] parameter is set. +
+Secondary emails are only included if the calling user has the
+link:access-control.html#capability_modifyAccount[Modify Account], and
+hence is allowed to see secondary emails of other users.
 |`username`        |optional|The username of the user. +
 Only set if detailed account information is requested. +
 See option link:rest-api-changes.html#detailed-accounts[
@@ -2430,6 +2430,8 @@ Number of spaces that should be used to display one tab.
 Default font size in pixels for change to be displayed in the diff view.
 |`line_wrapping`               |optional|
 Whether to enable line wrapping or not.
+|`indent_with_tabs`            |optional|
+Whether to enable indent with tabs or not.
 |===========================================
 
 [[edit-preferences-info]]
@@ -2469,8 +2471,12 @@ Whether line numbers should be hidden.
 Whether matching brackets should be highlighted.
 |`line_wrapping`               |not set if `false`|
 Whether to enable line wrapping or not.
+|`indent_with_tabs`            |not set if `false`|
+Whether to indent with tabs or not.
 |`auto_close_brackets`         |not set if `false`|
 Whether brackets and quotes should be auto-closed during typing.
+|`show_base`                   |not set if `false`|
+Whether to show the inline edit base version or not.
 |===========================================
 
 [[email-info]]

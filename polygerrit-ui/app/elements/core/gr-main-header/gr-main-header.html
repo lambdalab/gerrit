@@ -15,7 +15,9 @@ limitations under the License.
 -->
 <link rel="import" href="../../../bower_components/polymer/polymer.html">
 
+<link rel="import" href="../../../behaviors/docs-url-behavior/docs-url-behavior.html">
 <link rel="import" href="../../../behaviors/base-url-behavior/base-url-behavior.html">
+<link rel="import" href="../../plugins/gr-endpoint-decorator/gr-endpoint-decorator.html">
 <link rel="import" href="../../shared/gr-dropdown/gr-dropdown.html">
 <link rel="import" href="../../shared/gr-rest-api-interface/gr-rest-api-interface.html">
 <link rel="import" href="../gr-account-dropdown/gr-account-dropdown.html">
@@ -33,15 +35,17 @@ limitations under the License.
       }
       .bigTitle {
         color: var(--primary-text-color);
-        font-size: 1.75em;
+        font-size: 1.75rem;
         text-decoration: none;
       }
       .bigTitle:hover {
         text-decoration: underline;
       }
-      .bigTitle::before {
+      /* TODO (viktard): Clean-up after chromium-style migrates to component. */
+      .titleText::before {
         background-image: var(--header-icon);
         background-size: var(--header-icon-size) var(--header-icon-size);
+        background-repeat: no-repeat;
         content: "";
         display: inline-block;
         height: var(--header-icon-size);
@@ -49,11 +53,12 @@ limitations under the License.
         vertical-align: text-bottom;
         width: var(--header-icon-size);
       }
-      .bigTitle::after {
+      .titleText::after {
         content: var(--header-title-content);
       }
       ul {
         list-style: none;
+        padding-left: 1em;
       }
       .links > li {
         cursor: default;
@@ -64,7 +69,9 @@ limitations under the License.
       .linksTitle {
         color: var(--primary-text-color);
         display: inline-block;
+        font-family: var(--font-family-bold);
         position: relative;
+        text-transform: uppercase;
       }
       .linksTitle:hover {
         opacity: .75;
@@ -75,16 +82,21 @@ limitations under the License.
         flex: 1;
         justify-content: flex-end;
       }
+      .rightItems gr-endpoint-decorator:not(:empty) {
+        margin-left: 1em;
+      }
       gr-search-bar {
         flex-grow: 1;
         margin-left: .5em;
         max-width: 500px;
       }
-      gr-dropdown {
-        padding: 0.5em;
+      gr-dropdown,
+      .browse {
+        padding: .6em .5em;
       }
-      .more {
-        padding: 1em;
+      .browse {
+        /* Same as gr-button */
+        margin: 5px 4px;
         text-decoration: none;
       }
       .accountContainer:not(.loggedIn):not(.loggedOut) .loginButton,
@@ -96,7 +108,7 @@ limitations under the License.
       .accountContainer {
         align-items: center;
         display: flex;
-        margin: 0 -0.5em 0 0.5em;
+        margin: 0 -.5em 0 .5em;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -113,22 +125,32 @@ limitations under the License.
       }
       @media screen and (max-width: 50em) {
         .bigTitle {
-          font-size: 14px;
-          font-weight: bold;
+          font-size: var(--font-size-large);
+          font-family: var(--font-family-bold);
         }
-        gr-search-bar {
+        gr-search-bar,
+        .browse,
+        .rightItems .hideOnMobile,
+        .links > li.hideOnMobile {
           display: none;
         }
         .accountContainer {
           margin-left: .5em !important;
         }
+        gr-dropdown {
+          padding: .5em 0 .5em .5em;
+        }
       }
     </style>
     <nav>
-      <a href$="[[_computeRelativeURL('/')]]" class="bigTitle"></a>
+      <a href$="[[_computeRelativeURL('/')]]" class="bigTitle">
+        <gr-endpoint-decorator name="header-title">
+          <span class="titleText"></span>
+        </gr-endpoint-decorator>
+      </a>
       <ul class="links">
         <template is="dom-repeat" items="[[_links]]" as="linkGroup">
-          <li>
+          <li class$="[[linkGroup.class]]">
           <gr-dropdown
               link
               down-arrow
@@ -141,15 +163,19 @@ limitations under the License.
           </li>
         </template>
         <li>
-          <a class="more linksTitle" href$="[[_computeRelativeURL('/admin/projects')]]">
-            More</a>
+          <a
+              class="browse linksTitle"
+              href$="[[_computeRelativeURL('/admin/repos')]]">
+            Browse</a>
         </li>
       </ul>
       <div class="rightItems">
         <gr-search-bar value="{{searchQuery}}" role="search"></gr-search-bar>
+        <gr-endpoint-decorator
+            class="hideOnMobile"
+            name="header-browse-source"></gr-endpoint-decorator>
         <div class="accountContainer" id="accountContainer">
-          <a class="loginButton" href$="[[_loginURL]]"
-              on-tap="_loginTapHandler">Sign in</a>
+          <a class="loginButton" href$="[[_loginURL]]">Sign in</a>
           <gr-account-dropdown account="[[_account]]"></gr-account-dropdown>
         </div>
       </div>

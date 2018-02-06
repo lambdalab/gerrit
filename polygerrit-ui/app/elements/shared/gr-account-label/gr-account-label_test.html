@@ -43,6 +43,11 @@ limitations under the License.
         getLoggedIn() { return Promise.resolve(false); },
       });
       element = fixture('basic');
+      element._config = {
+        user: {
+          anonymous_coward_name: 'Anonymous Coward',
+        },
+      };
     });
 
     test('null guard', () => {
@@ -67,27 +72,66 @@ limitations under the License.
           {name: 'Andrew Bonventre'}),
           'Andrew Bonventre');
 
-      assert.equal(element._computeShowEmail(true,
+      assert.equal(element._computeAccountTitle(
+          {
+            email: 'andybons+gerrit@gmail.com',
+          }),
+          'Anonymous <andybons+gerrit@gmail.com>');
+
+      assert.equal(element._computeShowEmailClass(
           {
             name: 'Andrew Bonventre',
             email: 'andybons+gerrit@gmail.com',
-          }), true);
+          }), '');
 
-      assert.equal(element._computeShowEmail(true,
-          {name: 'Andrew Bonventre'}), false);
+      assert.equal(element._computeShowEmailClass(
+          {
+            email: 'andybons+gerrit@gmail.com',
+          }), 'showEmail');
 
-      assert.equal(element._computeShowEmail(false,
-          {name: 'Andrew Bonventre'}), false);
+      assert.equal(element._computeShowEmailClass({name: 'Andrew Bonventre'}),
+          '');
 
-      assert.equal(element._computeShowEmail(
-          true, undefined), false);
-
-      assert.equal(element._computeShowEmail(
-          false, undefined), false);
+      assert.equal(element._computeShowEmailClass(undefined), '');
 
       assert.equal(
           element._computeEmailStr({name: 'test', email: 'test'}), '(test)');
       assert.equal(element._computeEmailStr({email: 'test'}, ''), 'test');
+    });
+
+    suite('_computeName', () => {
+      test('not showing anonymous', () => {
+        const account = {name: 'Wyatt'};
+        assert.deepEqual(element._computeName(account, null), 'Wyatt');
+      });
+
+      test('showing anonymous but no config', () => {
+        const account = {};
+        assert.deepEqual(element._computeName(account, null),
+            'Anonymous');
+      });
+
+      test('test for Anonymous Coward user and replace with Anonymous', () => {
+        const config = {
+          user: {
+            anonymous_coward_name: 'Anonymous Coward',
+          },
+        };
+        const account = {};
+        assert.deepEqual(element._computeName(account, config),
+            'Anonymous');
+      });
+
+      test('test for anonymous_coward_name', () => {
+        const config = {
+          user: {
+            anonymous_coward_name: 'TestAnon',
+          },
+        };
+        const account = {};
+        assert.deepEqual(element._computeName(account, config),
+            'TestAnon');
+      });
     });
   });
 </script>

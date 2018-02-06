@@ -17,12 +17,12 @@ limitations under the License.
   <template>
     <style>
       :host {
-        font-size: 13px;
+        font-size: var(--font-size-normal);
       }
       .topHeader,
       .groupHeader {
         border-bottom: 1px solid #eee;
-        font-weight: bold;
+        font-family: var(--font-family-bold);
         padding: .3em .5em;
       }
       .topHeader {
@@ -45,6 +45,7 @@ limitations under the License.
       .label,
       .number,
       .owner,
+      .assignee,
       .updated,
       .size,
       .status,
@@ -63,7 +64,7 @@ limitations under the License.
       }
       @media only screen and (max-width: 50em) {
         :host {
-          font-size: 14px;
+          font-size: var(--font-size-large);
         }
         gr-change-list-item {
           flex-wrap: wrap;
@@ -79,7 +80,8 @@ limitations under the License.
         .project,
         .branch,
         .updated,
-        .label {
+        .label,
+        .assignee {
           display: none;
         }
         .star {

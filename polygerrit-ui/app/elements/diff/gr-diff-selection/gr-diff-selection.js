@@ -22,6 +22,7 @@
     COMMENT: 'selected-comment',
     LEFT: 'selected-left',
     RIGHT: 'selected-right',
+    BLAME: 'selected-blame',
   };
 
   const getNewCache = () => { return {left: null, right: null}; };
@@ -31,6 +32,7 @@
 
     properties: {
       diff: Object,
+      /** @type {?Object} */
       _cachedDiffBuilder: Object,
       _linesCache: {
         type: Object,
@@ -46,6 +48,10 @@
       copy: '_handleCopy',
       down: '_handleDown',
     },
+
+    behaviors: [
+      Gerrit.DomUtilBehavior,
+    ],
 
     attached() {
       this.classList.add(SelectionClass.RIGHT);
@@ -65,20 +71,36 @@
 
     _handleDown(e) {
       const lineEl = this.diffBuilder.getLineElByChild(e.target);
-      if (!lineEl) {
-        return;
-      }
-      const commentSelected =
-          this._elementDescendedFromClass(e.target, 'gr-diff-comment');
-      const side = this.diffBuilder.getSideByLineEl(lineEl);
-      const targetClasses = [];
-      targetClasses.push(side === 'left' ?
-          SelectionClass.LEFT :
-          SelectionClass.RIGHT);
+      const blameSelected = this._elementDescendedFromClass(e.target, 'blame');
+      if (!lineEl && !blameSelected) { return; }
 
-      if (commentSelected) {
-        targetClasses.push(SelectionClass.COMMENT);
+      const targetClasses = [];
+
+      if (blameSelected) {
+        targetClasses.push(SelectionClass.BLAME);
+      } else {
+        const commentSelected =
+            this._elementDescendedFromClass(e.target, 'gr-diff-comment');
+        const side = this.diffBuilder.getSideByLineEl(lineEl);
+
+        targetClasses.push(side === 'left' ?
+            SelectionClass.LEFT :
+            SelectionClass.RIGHT);
+
+        if (commentSelected) {
+          targetClasses.push(SelectionClass.COMMENT);
+        }
       }
+
+      this._setClasses(targetClasses);
+    },
+
+    /**
+     * Set the provided list of classes on the element, to the exclusion of all
+     * other SelectionClass values.
+     * @param {!Array<!string>} targetClasses
+     */
+    _setClasses(targetClasses) {
       // Remove any selection classes that do not belong.
       for (const key in SelectionClass) {
         if (SelectionClass.hasOwnProperty(key)) {
@@ -109,14 +131,8 @@
      * @return {boolean}
      */
     _elementDescendedFromClass(element, className) {
-      while (!element.classList.contains(className)) {
-        if (!element.parentElement ||
-            element === this.diffBuilder.diffElement) {
-          return false;
-        }
-        element = element.parentElement;
-      }
-      return true;
+      return this.descendedFromClass(element, className,
+          this.diffBuilder.diffElement);
     },
 
     _handleCopy(e) {
@@ -144,14 +160,14 @@
      * true, it returns only the text of comments within the selection.
      * Otherwise it returns the text of the selected diff region.
      *
-     * @param {!string} The side that is selected.
-     * @param {boolean} Whether or not a comment is selected.
+     * @param {!string} side The side that is selected.
+     * @param {boolean} commentSelected Whether or not a comment is selected.
      * @return {string} The selected text.
      */
     _getSelectedText(side, commentSelected) {
       const sel = window.getSelection();
       if (sel.rangeCount != 1) {
-        return; // No multi-select support yet.
+        return ''; // No multi-select support yet.
       }
       if (commentSelected) {
         return this._getCommentLines(sel, side);
@@ -161,7 +177,9 @@
           this.diffBuilder.getLineElByChild(range.startContainer);
       const endLineEl = this.diffBuilder.getLineElByChild(range.endContainer);
       const startLineNum = parseInt(startLineEl.getAttribute('data-value'), 10);
-      const endLineNum = parseInt(endLineEl.getAttribute('data-value'), 10);
+      const endLineNum = endLineEl === null ?
+          undefined :
+          parseInt(endLineEl.getAttribute('data-value'), 10);
 
       return this._getRangeFromDiff(startLineNum, range.startOffset, endLineNum,
           range.endOffset, side);
@@ -170,10 +188,11 @@
     /**
      * Query the diff object for the selected lines.
      *
-     * @param {int} startLineNum
-     * @param {int} startOffset
-     * @param {int} endLineNum
-     * @param {int} endOffset
+     * @param {number} startLineNum
+     * @param {number} startOffset
+     * @param {number|undefined} endLineNum Use undefined to get the range
+     *     extending to the end of the file.
+     * @param {number} endOffset
      * @param {!string} side The side that is currently selected.
      * @return {string} The selected diff text.
      */
@@ -192,7 +211,7 @@
      * Query the diff object for the lines from a particular side.
      *
      * @param {!string} side The side that is currently selected.
-     * @return {Array.string} An array of strings indexed by line number.
+     * @return {!Array<string>} An array of strings indexed by line number.
      */
     _getDiffLines(side) {
       if (this._linesCache[side]) {
@@ -254,9 +273,9 @@
      * of the text content within that selection.
      * Using a domNode that isn't in the selection returns an empty string.
      *
-     * @param {Element} domNode The root DOM node.
-     * @param {Selection} sel The selection.
-     * @param {Range} range The normalized selection range.
+     * @param {!Node} domNode The root DOM node.
+     * @param {!Selection} sel The selection.
+     * @param {!Range} range The normalized selection range.
      * @return {string} The text within the selection.
      */
     _getTextContentForRange(domNode, sel, range) {

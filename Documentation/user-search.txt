@@ -14,7 +14,6 @@ matches the search, the change will be presented instead of a list.
 |All > Open           | status:open '(or is:open)'
 |All > Merged         | status:merged
 |All > Abandoned      | status:abandoned
-|My > Drafts          | owner:self is:draft
 |My > Watched Changes | status:open is:watched
 |My > Starred Changes | is:starred
 |My > Draft Comments  | has:draft
@@ -128,6 +127,11 @@ cc:'USER'::
 +
 Changes that have the given user CC'ed on them. The special case of `cc:self`
 will find changes where the caller has been CC'ed.
+
+[[revertof]]
+revertof:'ID'::
++
+Changes that revert the change specified by the numeric 'ID'.
 
 [[reviewerin]]
 reviewerin:'GROUP'::
@@ -332,10 +336,6 @@ is:open, is:pending::
 +
 True if the change is open.
 
-is:draft::
-+
-True if the change is a draft.
-
 is:closed::
 +
 True if the change is either merged or abandoned.
@@ -525,7 +525,7 @@ A label name is any of the following:
 
 A label name must be followed by either a score with optional operator,
 or a label status. The easiest way to explain this is by example.
-+
+
 First, some examples of scores with operators:
 
 `label:Code-Review=2`::

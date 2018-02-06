@@ -14,13 +14,18 @@
 (function() {
   'use strict';
 
+  const HASHTAG_ADD_MESSAGE = 'Add Hashtag';
+
   const SubmitTypeLabel = {
     FAST_FORWARD_ONLY: 'Fast Forward Only',
     MERGE_IF_NECESSARY: 'Merge if Necessary',
     REBASE_IF_NECESSARY: 'Rebase if Necessary',
     MERGE_ALWAYS: 'Always Merge',
+    REBASE_ALWAYS: 'Rebase Always',
     CHERRY_PICK: 'Cherry Pick',
   };
+
+  const NOT_CURRENT_MESSAGE = 'Not current - rebase possible';
 
   Polymer({
     is: 'gr-change-metadata',
@@ -32,13 +37,30 @@
      */
 
     properties: {
+      /** @type {?} */
       change: Object,
+      /** @type {?} */
+      revision: Object,
       commitInfo: Object,
+      missingLabels: Array,
       mutable: Boolean,
+      /**
+       * @type {{ note_db_enabled: string }}
+       */
       serverConfig: Object,
+      parentIsCurrent: Boolean,
+      _notCurrentMessage: {
+        type: String,
+        value: NOT_CURRENT_MESSAGE,
+        readOnly: true,
+      },
       _topicReadOnly: {
         type: Boolean,
         computed: '_computeTopicReadOnly(mutable, change)',
+      },
+      _hashtagReadOnly: {
+        type: Boolean,
+        computed: '_computeHashtagReadOnly(mutable, change)',
       },
       _showReviewersByState: {
         type: Boolean,
@@ -53,6 +75,17 @@
       _isWip: {
         type: Boolean,
         computed: '_computeIsWip(change)',
+      },
+      _newHashtag: String,
+
+      _settingTopic: {
+        type: Boolean,
+        value: false,
+      },
+
+      _currentParents: {
+        type: Array,
+        computed: '_computeParents(change)',
       },
     },
 
@@ -90,27 +123,18 @@
     },
 
     /**
-     * This is a whitelist of web link types that provide direct links to
-     * the commit in the url property.
-     */
-    _isCommitWebLink(link) {
-      return link.name === 'gitiles' || link.name === 'gitweb';
-    },
-
-    /**
      * @param {Object} commitInfo
      * @return {?Array} If array is empty, returns null instead so
      * an existential check can be used to hide or show the webLinks
      * section.
      */
     _computeWebLinks(commitInfo) {
-      if (!commitInfo || !commitInfo.web_links) { return null; }
-      // We are already displaying these types of links elsewhere,
-      // don't include in the metadata links section.
-      const webLinks = commitInfo.web_links.filter(
-          l => {return !this._isCommitWebLink(l); });
-
-      return webLinks.length ? webLinks : null;
+      if (!commitInfo) { return null; }
+      const weblinks = Gerrit.Nav.getChangeWeblinks(
+          this.change ? this.change.repo : '',
+          commitInfo.commit,
+          {weblinks: commitInfo.web_links});
+      return weblinks.length ? weblinks : null;
     },
 
     _computeStrategy(change) {
@@ -124,18 +148,39 @@
     _computeLabelValues(labelName, _labels) {
       const result = [];
       const labels = _labels.base;
-      const t = labels[labelName];
-      if (!t) { return result; }
-      const approvals = t.all || [];
+      const labelInfo = labels[labelName];
+      if (!labelInfo) { return result; }
+      if (!labelInfo.values) {
+        if (labelInfo.rejected || labelInfo.approved) {
+          const ok = labelInfo.approved || !labelInfo.rejected;
+          return [{
+            value: ok ? '👍️' : '👎️',
+            className: ok ? 'positive' : 'negative',
+            account: ok ? labelInfo.approved : labelInfo.rejected,
+          }];
+        }
+        return result;
+      }
+      const approvals = labelInfo.all || [];
+      const values = Object.keys(labelInfo.values);
       for (const label of approvals) {
         if (label.value && label.value != labels[labelName].default_value) {
           let labelClassName;
           let labelValPrefix = '';
           if (label.value > 0) {
             labelValPrefix = '+';
-            labelClassName = 'approved';
+            if (parseInt(label.value, 10) ===
+                parseInt(values[values.length - 1], 10)) {
+              labelClassName = 'max';
+            } else {
+              labelClassName = 'positive';
+            }
           } else if (label.value < 0) {
-            labelClassName = 'notApproved';
+            if (parseInt(label.value, 10) === parseInt(values[0], 10)) {
+              labelClassName = 'min';
+            } else {
+              labelClassName = 'negative';
+            }
           }
           result.push({
             value: labelValPrefix + label.value,
@@ -147,16 +192,20 @@
       return result;
     },
 
-    _computeValueTooltip(score, labelName) {
-      const values = this.change.labels[labelName].values;
-      return values[score];
+    _computeValueTooltip(change, score, labelName) {
+      if (!change.labels[labelName] ||
+          !change.labels[labelName].values ||
+          !change.labels[labelName].values[score]) { return ''; }
+      return change.labels[labelName].values[score];
     },
 
     _handleTopicChanged(e, topic) {
       const lastTopic = this.change.topic;
       if (!topic.length) { topic = null; }
+      this._settingTopic = true;
       this.$.restAPI.setChangeTopic(this.change._number, topic)
           .then(newTopic => {
+            this._settingTopic = false;
             this.set(['change', 'topic'], newTopic);
             if (newTopic !== lastTopic) {
               this.dispatchEvent(
@@ -165,8 +214,39 @@
           });
     },
 
+    _showAddTopic(changeRecord, settingTopic) {
+      const hasTopic = !!changeRecord && !!changeRecord.base.topic;
+      return !hasTopic && !settingTopic;
+    },
+
+    _showTopicChip(changeRecord, settingTopic) {
+      const hasTopic = !!changeRecord && !!changeRecord.base.topic;
+      return hasTopic && !settingTopic;
+    },
+
+    _handleHashtagChanged(e) {
+      const lastHashtag = this.change.hashtag;
+      if (!this._newHashtag.length) { return; }
+      const newHashtag = this._newHashtag;
+      this._newHashtag = '';
+      this.$.restAPI.setChangeHashtag(
+          this.change._number, {add: [newHashtag]}).then(newHashtag => {
+            this.set(['change', 'hashtags'], newHashtag);
+            if (newHashtag !== lastHashtag) {
+              this.dispatchEvent(
+                  new CustomEvent('hashtag-changed', {bubbles: true}));
+            }
+          });
+    },
+
     _computeTopicReadOnly(mutable, change) {
       return !mutable || !change.actions.topic || !change.actions.topic.enabled;
+    },
+
+    _computeHashtagReadOnly(mutable, change) {
+      return !mutable ||
+          !change.actions.hashtags ||
+          !change.actions.hashtags.enabled;
     },
 
     _computeAssigneeReadOnly(mutable, change) {
@@ -176,7 +256,13 @@
     },
 
     _computeTopicPlaceholder(_topicReadOnly) {
-      return _topicReadOnly ? 'No Topic' : 'Click to add topic';
+      // Action items in Material Design are uppercase -- placeholder label text
+      // is sentence case.
+      return _topicReadOnly ? 'No topic' : 'ADD TOPIC';
+    },
+
+    _computeHashtagPlaceholder(_hashtagReadOnly) {
+      return _hashtagReadOnly ? '' : HASHTAG_ADD_MESSAGE;
     },
 
     _computeShowReviewersByState(serverConfig) {
@@ -204,14 +290,23 @@
       return false;
     },
 
+    /**
+     * Closure annotation for Polymer.prototype.splice is off.
+     * For now, supressing annotations.
+     *
+     * TODO(beckysiegel) submit Polymer PR
+     *
+     * @suppress {checkTypes} */
     _onDeleteVote(e) {
       e.preventDefault();
       const target = Polymer.dom(e).rootTarget;
+      target.disabled = true;
       const labelName = target.labelName;
       const accountID = parseInt(target.getAttribute('data-account-id'), 10);
       this._xhrPromise =
-          this.$.restAPI.deleteVote(this.change.id, accountID, labelName)
+          this.$.restAPI.deleteVote(this.change._number, accountID, labelName)
           .then(response => {
+            target.disabled = false;
             if (!response.ok) { return response; }
             const label = this.change.labels[labelName];
             const labels = label.all || [];
@@ -229,6 +324,9 @@
                 break;
               }
             }
+          }).catch(err => {
+            target.disabled = false;
+            return;
           });
     },
 
@@ -238,33 +336,21 @@
       return isNewChange && hasLabels;
     },
 
-    _computeMissingLabels(labels) {
-      const missingLabels = [];
-      for (const label in labels) {
-        if (!labels.hasOwnProperty(label)) { continue; }
-        const obj = labels[label];
-        if (!obj.optional && !obj.approved) {
-          missingLabels.push(label);
-        }
-      }
-      return missingLabels;
-    },
-
-    _computeMissingLabelsHeader(labels) {
+    _computeMissingLabelsHeader(missingLabels) {
       return 'Needs label' +
-          (this._computeMissingLabels(labels).length > 1 ? 's' : '') + ':';
+          (missingLabels.length > 1 ? 's' : '') + ':';
     },
 
-    _showMissingLabels(labels) {
-      return !!this._computeMissingLabels(labels).length;
+    _showMissingLabels(missingLabels) {
+      return !!missingLabels.length;
     },
 
-    _showMissingRequirements(labels, workInProgress) {
-      return workInProgress || this._showMissingLabels(labels);
+    _showMissingRequirements(missingLabels, workInProgress) {
+      return workInProgress || this._showMissingLabels(missingLabels);
     },
 
     _computeProjectURL(project) {
-      return Gerrit.Nav.getUrlForProject(project);
+      return Gerrit.Nav.getUrlForProjectChanges(project);
     },
 
     _computeBranchURL(project, branch) {
@@ -277,16 +363,82 @@
       return Gerrit.Nav.getUrlForTopic(topic);
     },
 
-    _handleTopicRemoved() {
+    _computeHashtagURL(hashtag) {
+      return Gerrit.Nav.getUrlForHashtag(hashtag);
+    },
+
+    _handleTopicRemoved(e) {
+      const target = Polymer.dom(e).rootTarget;
+      target.disabled = true;
       this.$.restAPI.setChangeTopic(this.change._number, null).then(() => {
+        target.disabled = false;
         this.set(['change', 'topic'], '');
         this.dispatchEvent(
             new CustomEvent('topic-changed', {bubbles: true}));
+      }).catch(err => {
+        target.disabled = false;
+        return;
       });
+    },
+
+    _handleHashtagRemoved(e) {
+      e.preventDefault();
+      const target = Polymer.dom(e).rootTarget;
+      target.disabled = true;
+      this.$.restAPI.setChangeHashtag(this.change._number,
+          {remove: [target.text]})
+          .then(newHashtag => {
+            target.disabled = false;
+            this.set(['change', 'hashtags'], newHashtag);
+          }).catch(err => {
+            target.disabled = false;
+            return;
+          });
     },
 
     _computeIsWip(change) {
       return !!change.work_in_progress;
+    },
+
+    _computeShowUploaderHide(change) {
+      return this._computeShowUploader(change) ? '' : 'hideDisplay';
+    },
+
+    _computeShowUploader(change) {
+      if (!change.current_revision ||
+          !change.revisions[change.current_revision]) {
+        return null;
+      }
+
+      const rev = change.revisions[change.current_revision];
+
+      if (!rev || !rev.uploader ||
+        change.owner._account_id === rev.uploader._account_id) {
+        return null;
+      }
+
+      return rev.uploader;
+    },
+
+    _computeParents(change) {
+      if (!change.current_revision ||
+          !change.revisions[change.current_revision] ||
+          !change.revisions[change.current_revision].commit) {
+        return undefined;
+      }
+      return change.revisions[change.current_revision].commit.parents;
+    },
+
+    _computeParentsLabel(parents) {
+      return parents.length > 1 ? 'Parents' : 'Parent';
+    },
+
+    _computeParentListClass(parents, parentIsCurrent) {
+      return [
+        'parentList',
+        parents.length > 1 ? 'merge' : 'nonMerge',
+        parentIsCurrent ? 'current' : 'notCurrent',
+      ].join(' ');
     },
   });
 })();

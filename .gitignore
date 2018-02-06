@@ -1,5 +1,4 @@
 # Keep following lines sorted according to `LC_COLLATE=C sort`
-*.asc
 *.eml
 *.iml
 *.pyc
@@ -19,11 +18,7 @@
 /.settings/org.eclipse.ltk.core.refactoring.prefs
 /.settings/org.eclipse.m2e.core.prefs
 /.settings/org.maven.ide.eclipse.prefs
-/bazel-bin
-/bazel-genfiles
-/bazel-gerrit
-/bazel-out
-/bazel-testlogs
+/bazel-*
 /bin/
 /buck-out
 /eclipse-out
@@ -32,5 +27,7 @@
 /gwt-unitCache
 /infer-out
 /local.properties
+/plugins/cookbook-plugin/
 /test_site
 /tools/format
+/.vscode

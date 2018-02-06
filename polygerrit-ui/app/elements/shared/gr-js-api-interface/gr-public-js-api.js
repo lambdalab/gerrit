@@ -14,15 +14,15 @@
 (function(window) {
   'use strict';
 
-  const warnNotSupported = function(opt_name) {
-    console.warn('Plugin API method ' + (opt_name || '') + ' is not supported');
-  };
+  /**
+   * Hash of loaded and installed plugins, name to Plugin object.
+   */
+  const plugins = {};
 
-  const stubbedMethods = ['_loadedGwt', 'screen', 'settingsScreen', 'panel'];
-  const GWT_PLUGIN_STUB = {};
-  for (const name of stubbedMethods) {
-    GWT_PLUGIN_STUB[name] = warnNotSupported.bind(null, name);
-  }
+  const PANEL_ENDPOINTS_MAPPING = {
+    CHANGE_SCREEN_BELOW_COMMIT_INFO_BLOCK: 'change-view-integration',
+    CHANGE_SCREEN_BELOW_CHANGE_INFO_BLOCK: 'change-metadata-item',
+  };
 
   let _restAPI;
   const getRestAPI = () => {
@@ -32,34 +32,88 @@
     return _restAPI;
   };
 
+  // TODO (viktard): deprecate in favor of GrPluginRestApi.
+  function send(method, url, opt_callback, opt_payload) {
+    return getRestAPI().send(method, url, opt_payload).then(response => {
+      if (response.status < 200 || response.status >= 300) {
+        return response.text().then(text => {
+          if (text) {
+            return Promise.reject(text);
+          } else {
+            return Promise.reject(response.status);
+          }
+        });
+      } else {
+        return getRestAPI().getResponseObject(response);
+      }
+    }).then(response => {
+      if (opt_callback) {
+        opt_callback(response);
+      }
+      return response;
+    });
+  }
+
   const API_VERSION = '0.1';
 
+  /**
+   * Plugin-provided custom components can affect content in extension
+   * points using one of following methods:
+   * - DECORATE: custom component is set with `content` attribute and may
+   *   decorate (e.g. style) DOM element.
+   * - REPLACE: contents of extension point are replaced with the custom
+   *   component.
+   * - STYLE: custom component is a shared styles module that is inserted
+   *   into the extension point.
+   */
   const EndpointType = {
+    DECORATE: 'decorate',
+    REPLACE: 'replace',
     STYLE: 'style',
-    DOM_DECORATION: 'dom',
   };
 
   // GWT JSNI uses $wnd to refer to window.
   // http://www.gwtproject.org/doc/latest/DevGuideCodingBasicsJSNI.html
   window.$wnd = window;
 
+  function getPluginNameFromUrl(url) {
+    const base = Gerrit.BaseUrlBehavior.getBaseUrl();
+    const pathname = url.pathname.replace(base, '');
+    // Site theme is server from predefined path.
+    if (pathname === '/static/gerrit-theme.html') {
+      return 'gerrit-theme';
+    } else if (!pathname.startsWith('/plugins')) {
+      console.warn('Plugin not being loaded from /plugins base path:',
+          url.href, '— Unable to determine name.');
+      return;
+    }
+    // Pathname should normally look like this:
+    // /plugins/PLUGINNAME/static/SCRIPTNAME.html
+    // Or, for app/samples:
+    // /plugins/PLUGINNAME.html
+    return pathname.split('/')[2].split('.')[0];
+  }
+
   function Plugin(opt_url) {
-    this._generatedHookNames = [];
-    this._hooks = [];
+    this._domHooks = new GrDomHooksManager(this);
 
     if (!opt_url) {
       console.warn('Plugin not being loaded from /plugins base path.',
           'Unable to determine name.');
       return;
     }
+    this.deprecated = {
+      _loadedGwt: deprecatedAPI._loadedGwt.bind(this),
+      install: deprecatedAPI.install.bind(this),
+      onAction: deprecatedAPI.onAction.bind(this),
+      panel: deprecatedAPI.panel.bind(this),
+      popup: deprecatedAPI.popup.bind(this),
+      screen: deprecatedAPI.screen.bind(this),
+      settingsScreen: deprecatedAPI.settingsScreen.bind(this),
+    };
 
     this._url = new URL(opt_url);
-    if (!this._url.pathname.startsWith('/plugins')) {
-      console.warn('Plugin not being loaded from /plugins base path:',
-          this._url.href, '— Unable to determine name.');
-      return;
-    }
-    this._name = this._url.pathname.split('/')[2];
+    this._name = getPluginNameFromUrl(this._url);
   }
 
   Plugin._sharedAPIElement = document.createElement('gr-js-api-interface');
@@ -71,27 +125,27 @@
   };
 
   Plugin.prototype.registerStyleModule = function(endpointName, moduleName) {
-    this._registerEndpointModule(
-        endpointName, EndpointType.STYLE, moduleName);
+    Gerrit._endpoints.registerModule(
+        this, endpointName, EndpointType.STYLE, moduleName);
   };
 
-  Plugin.prototype.registerCustomComponent =
-      function(endpointName, moduleName) {
-        this._registerEndpointModule(
-            endpointName, EndpointType.DOM_DECORATION, moduleName);
-      };
+  Plugin.prototype.registerCustomComponent = function(
+      endpointName, opt_moduleName, opt_options) {
+    const type = opt_options && opt_options.replace ?
+          EndpointType.REPLACE : EndpointType.DECORATE;
+    const hook = this._domHooks.getDomHook(endpointName, opt_moduleName);
+    const moduleName = opt_moduleName || hook.getModuleName();
+    Gerrit._endpoints.registerModule(
+        this, endpointName, type, moduleName, hook);
+    return hook.getPublicAPI();
+  };
 
-  Plugin.prototype._registerEndpointModule = function(endpoint, type, module) {
-    const endpoints = Gerrit._endpoints;
-    if (!endpoints[endpoint]) {
-      endpoints[endpoint] = [];
-    }
-    endpoints[endpoint].push({
-      moduleName: module,
-      plugin: this,
-      pluginUrl: this._url,
-      type,
-    });
+  /**
+   * Returns instance of DOM hook API for endpoint. Creates a placeholder
+   * element for the first call.
+   */
+  Plugin.prototype.hook = function(endpointName, opt_options) {
+    return this.registerCustomComponent(endpointName, undefined, opt_options);
   };
 
   Plugin.prototype.getServerInfo = function() {
@@ -103,26 +157,49 @@
   };
 
   Plugin.prototype.url = function(opt_path) {
-    return this._url.origin + '/plugins/' + this._name + (opt_path || '/');
+    const base = Gerrit.BaseUrlBehavior.getBaseUrl();
+    return this._url.origin + base + '/plugins/' +
+        this._name + (opt_path || '/');
   };
 
-  Plugin.prototype._send = function(method, url, callback, opt_payload) {
-    return getRestAPI().send(method, url, opt_payload)
-        .then(getRestAPI().getResponseObject)
-        .then(callback);
+  Plugin.prototype.screenUrl = function(opt_screenName) {
+    const origin = this._url.origin;
+    const base = Gerrit.BaseUrlBehavior.getBaseUrl();
+    const tokenPart = opt_screenName ? '/' + opt_screenName : '';
+    return `${origin}${base}/x/${this.getPluginName()}${tokenPart}`;
   };
 
-  Plugin.prototype.get = function(url, callback) {
-    return this._send('GET', url, callback);
-  },
+  Plugin.prototype._send = function(method, url, opt_callback, opt_payload) {
+    return send(method, this.url(url), opt_callback, opt_payload);
+  };
 
-  Plugin.prototype.post = function(url, payload, callback) {
-    return this._send('POST', url, callback, payload);
-  },
+  Plugin.prototype.get = function(url, opt_callback) {
+    console.warn('.get() is deprecated! Use .restApi().get()');
+    return this._send('GET', url, opt_callback);
+  };
+
+  Plugin.prototype.post = function(url, payload, opt_callback) {
+    console.warn('.post() is deprecated! Use .restApi().post()');
+    return this._send('POST', url, opt_callback, payload);
+  };
+
+  Plugin.prototype.put = function(url, payload, opt_callback) {
+    console.warn('.put() is deprecated! Use .restApi().put()');
+    return this._send('PUT', url, opt_callback, payload);
+  };
+
+  Plugin.prototype.delete = function(url, opt_callback) {
+    return Gerrit.delete(this.url(url), opt_callback);
+  };
+
+  Plugin.prototype.annotationApi = function() {
+    return new GrAnnotationActionsInterface(this);
+  };
 
   Plugin.prototype.changeActions = function() {
-    return new GrChangeActionsInterface(Plugin._sharedAPIElement.getElement(
-        Plugin._sharedAPIElement.Element.CHANGE_ACTIONS));
+    return new GrChangeActionsInterface(this,
+      Plugin._sharedAPIElement.getElement(
+          Plugin._sharedAPIElement.Element.CHANGE_ACTIONS));
   };
 
   Plugin.prototype.changeReply = function() {
@@ -131,45 +208,199 @@
           Plugin._sharedAPIElement.Element.REPLY_DIALOG));
   };
 
-  Plugin.prototype._getGeneratedHookName = function(endpointName) {
-    if (!this._generatedHookNames[endpointName]) {
-      this._generatedHookNames[endpointName] =
-        (this.getPluginName() || 'test') + '-autogenerated-' + endpointName;
-    }
-    return this._generatedHookNames[endpointName];
+  Plugin.prototype.changeView = function() {
+    return new GrChangeViewApi(this);
   };
 
-  Plugin.prototype.getDomHook = function(endpointName) {
-    const hookName = this._getGeneratedHookName(endpointName);
-    if (!this._hooks[hookName]) {
-      this._hooks[hookName] = new Promise((resolve, reject) => {
-        Polymer({
-          is: hookName,
-          properties: {
-            plugin: Object,
-            content: Object,
-          },
-          attached() {
-            resolve(this);
+  Plugin.prototype.theme = function() {
+    return new GrThemeApi(this);
+  };
+
+  Plugin.prototype.project = function() {
+    return new GrRepoApi(this);
+  };
+
+  Plugin.prototype.settings = function() {
+    return new GrSettingsApi(this);
+  };
+
+  /**
+   * To make REST requests for plugin-provided endpoints, use
+   * @example
+   * const pluginRestApi = plugin.restApi(plugin.url());
+   *
+   * @param {string} Base url for subsequent .get(), .post() etc requests.
+   */
+  Plugin.prototype.restApi = function(opt_prefix) {
+    return new GrPluginRestApi(opt_prefix);
+  };
+
+  Plugin.prototype.attributeHelper = function(element) {
+    return new GrAttributeHelper(element);
+  };
+
+  Plugin.prototype.eventHelper = function(element) {
+    return new GrEventHelper(element);
+  };
+
+  Plugin.prototype.popup = function(moduleName) {
+    if (typeof moduleName !== 'string') {
+      console.error('.popup(element) deprecated, use .popup(moduleName)!');
+      return;
+    }
+    const api = new GrPopupInterface(this, moduleName);
+    return api.open();
+  };
+
+  Plugin.prototype.panel = function() {
+    console.error('.panel() is deprecated! ' +
+        'Use registerCustomComponent() instead.');
+  };
+
+  Plugin.prototype.settingsScreen = function() {
+    console.error('.settingsScreen() is deprecated! ' +
+        'Use .settings() instead.');
+  };
+
+  Plugin.prototype.screen = function(screenName, opt_moduleName) {
+    if (opt_moduleName && typeof opt_moduleName !== 'string') {
+      console.error('.screen(pattern, callback) deprecated, use ' +
+          '.screen(screenName, opt_moduleName)!');
+      return;
+    }
+    return this.registerCustomComponent(
+        Gerrit._getPluginScreenName(this.getPluginName(), screenName),
+        opt_moduleName);
+  };
+
+  const deprecatedAPI = {
+    _loadedGwt: ()=> {},
+
+    install() {
+      console.log('Installing deprecated APIs is deprecated!');
+      for (const method in this.deprecated) {
+        if (method === 'install') continue;
+        this[method] = this.deprecated[method];
+      }
+    },
+
+    popup(el) {
+      console.warn('plugin.deprecated.popup() is deprecated, ' +
+          'use plugin.popup() insted!');
+      if (!el) {
+        throw new Error('Popup contents not found');
+      }
+      const api = new GrPopupInterface(this);
+      api.open().then(api => api._getElement().appendChild(el));
+      return api;
+    },
+
+    onAction(type, action, callback) {
+      console.warn('plugin.deprecated.onAction() is deprecated,' +
+          ' use plugin.changeActions() instead!');
+      if (type !== 'change' && type !== 'revision') {
+        console.warn(`${type} actions are not supported.`);
+        return;
+      }
+      this.on('showchange', (change, revision) => {
+        const details = this.changeActions().getActionDetails(action);
+        if (!details) {
+          console.warn(
+              `${this.getPluginName()} onAction error: ${action} not found!`);
+          return;
+        }
+        this.changeActions().addTapListener(details.__key, () => {
+          callback(new GrPluginActionContext(this, details, change, revision));
+        });
+      });
+    },
+
+    screen(pattern, callback) {
+      console.warn('plugin.deprecated.screen is deprecated,' +
+          ' use plugin.screen instead!');
+      if (pattern instanceof RegExp) {
+        console.error('deprecated.screen() does not support RegExp. ' +
+            'Please use strings for patterns.');
+        return;
+      }
+      this.hook(Gerrit._getPluginScreenName(this.getPluginName(), pattern))
+          .onAttached(el => {
+            el.style.display = 'none';
+            callback({
+              body: el,
+              token: el.token,
+              onUnload: () => {},
+              setTitle: () => {},
+              setWindowTitle: () => {},
+              show: () => {
+                el.style.display = 'initial';
+              },
+            });
+          });
+    },
+
+    settingsScreen(path, menu, callback) {
+      console.warn('.settingsScreen() is deprecated! Use .settings() instead.');
+      const hook = this.settings()
+          .title(menu)
+          .token(path)
+          .module('div')
+          .build();
+      hook.onAttached(el => {
+        el.style.display = 'none';
+        const body = el.querySelector('div');
+        callback({
+          body,
+          onUnload: () => {},
+          setTitle: () => {},
+          setWindowTitle: () => {},
+          show: () => {
+            el.style.display = 'initial';
           },
         });
-        this.registerCustomComponent(endpointName, hookName);
       });
-    }
-    return this._hooks[hookName];
+    },
+
+    panel(extensionpoint, callback) {
+      console.warn('.panel() is deprecated! ' +
+          'Use registerCustomComponent() instead.');
+      const endpoint = PANEL_ENDPOINTS_MAPPING[extensionpoint];
+      if (!endpoint) {
+        console.warn(`.panel ${extensionpoint} not supported!`);
+        return;
+      }
+      this.hook(endpoint).onAttached(el => callback({
+        body: el,
+        p: {
+          CHANGE_INFO: el.change,
+          REVISION_INFO: el.revision,
+        },
+        onUnload: () => {},
+      }));
+    },
   };
 
   const Gerrit = window.Gerrit || {};
 
+  // Provide reset plugins function to clear installed plugins between tests.
+  const app = document.querySelector('#app');
+  if (!app) {
+    // No gr-app found (running tests)
+    Gerrit._resetPlugins = () => {
+      for (const k of Object.keys(plugins)) {
+        delete plugins[k];
+      }
+    };
+  }
+
   // Number of plugins to initialize, -1 means 'not yet known'.
   Gerrit._pluginsPending = -1;
 
-  // Hash of custom components to be instantiated for extension endpoints.
-  Gerrit._endpoints = {};
+  Gerrit._endpoints = new GrPluginEndpoints();
 
   Gerrit.getPluginName = function() {
     console.warn('Gerrit.getPluginName is not supported in PolyGerrit.',
-        'Please use self.getPluginName() instead.');
+        'Please use plugin.getPluginName() instead.');
   };
 
   Gerrit.css = function(rulesStr) {
@@ -193,31 +424,74 @@
       return;
     }
 
-    // TODO(andybons): Polyfill currentScript for IE10/11 (edge supports it).
     const src = opt_src || (document.currentScript &&
-         document.currentScript.src || document.currentScript.baseURI);
-    const plugin = new Plugin(src);
+         (document.currentScript.src || document.currentScript.baseURI));
+    const name = getPluginNameFromUrl(new URL(src));
+    const plugin = plugins[name] || new Plugin(src);
     try {
       callback(plugin);
+      plugins[name] = plugin;
     } catch (e) {
-      console.warn(plugin.getPluginName() + ' install failed: ' +
-          e.name + ': ' + e.message);
+      console.warn(`${name} install failed: ${e.name}: ${e.message}`);
     }
     Gerrit._pluginInstalled();
   };
 
   Gerrit.getLoggedIn = function() {
+    console.warn('Gerrit.getLoggedIn() is deprecated! ' +
+        'Use plugin.restApi().getLoggedIn()');
     return document.createElement('gr-rest-api-interface').getLoggedIn();
   };
 
+  Gerrit.get = function(url, callback) {
+    console.warn('.get() is deprecated! Use plugin.restApi().get()');
+    send('GET', url, callback);
+  };
+
+  Gerrit.post = function(url, payload, callback) {
+    console.warn('.post() is deprecated! Use plugin.restApi().post()');
+    send('POST', url, callback, payload);
+  };
+
+  Gerrit.put = function(url, payload, callback) {
+    console.warn('.put() is deprecated! Use plugin.restApi().put()');
+    send('PUT', url, callback, payload);
+  };
+
+  Gerrit.delete = function(url, opt_callback) {
+    console.warn('.delete() is deprecated! Use plugin.restApi().delete()');
+    return getRestAPI().send('DELETE', url).then(response => {
+      if (response.status !== 204) {
+        return response.text().then(text => {
+          if (text) {
+            return Promise.reject(text);
+          } else {
+            return Promise.reject(response.status);
+          }
+        });
+      }
+      if (opt_callback) {
+        opt_callback(response);
+      }
+      return response;
+    });
+  };
+
   /**
-   * Polyfill GWT API dependencies to avoid runtime exceptions when loading
-   * GWT-compiled plugins.
-   * @deprecated Not supported in PolyGerrit.
+   * Install "stepping stones" API for GWT-compiled plugins by default.
+   * @deprecated best effort support, will be removed with GWT UI.
    */
-  Gerrit.installGwt = function() {
+  Gerrit.installGwt = function(url) {
     Gerrit._pluginInstalled();
-    return GWT_PLUGIN_STUB;
+    const name = getPluginNameFromUrl(new URL(url));
+    let plugin;
+    try {
+      plugin = plugins[name] || new Plugin(url);
+      plugin.deprecated.install();
+    } catch (e) {
+      console.warn(`${name} install failed: ${e.name}: ${e.message}`);
+    }
+    return plugin;
   };
 
   Gerrit._allPluginsPromise = null;
@@ -254,66 +528,8 @@
     return Gerrit._pluginsPending === 0;
   };
 
-  /**
-   * Get detailed information about modules registered with an extension
-   * endpoint.
-   * @param {string} name Endpoint name.
-   * @param {?{
-   *   type: (string|undefined),
-   *   moduleName: (string|undefined)
-   * }} opt_options
-   * @return {{
-   *   moduleName: string,
-   *   plugin: Plugin,
-   *   pluginUrl: String,
-   *   type: EndpointType,
-   * }}
-   */
-  Gerrit._getEndpointDetails = function(name, opt_options) {
-    const type = opt_options && opt_options.type;
-    const moduleName = opt_options && opt_options.moduleName;
-    if (!Gerrit._endpoints[name]) {
-      return [];
-    }
-    return Gerrit._endpoints[name]
-        .filter(item => (!type || item.type === type) &&
-                    (!moduleName || moduleName == item.moduleName));
-  };
-
-  /**
-   * Get detailed module names for instantiating at the endpoint
-   * @param {string} name Endpoint name.
-   * @param {?{
-   *   type: (string|undefined),
-   *   moduleName: (string|undefined)
-   * }} opt_options
-   * @return {!Array<string>}
-   */
-  Gerrit._getModulesForEndoint = function(name, opt_options) {
-    const modulesData = Gerrit._getEndpointDetails(name, opt_options);
-    if (!modulesData.length) {
-      return [];
-    }
-    return modulesData.map(m => m.moduleName);
-  };
-
-  /**
-   * Get .html plugin URLs with element and module definitions.
-   * @param {string} name Endpoint name.
-   * @param {?{
-   *   type: (string|undefined),
-   *   moduleName: (string|undefined)
-   * }} opt_options
-   * @return {!Array<!URL>}
-   */
-  Gerrit._getPluginsForEndpoint = function(name, opt_options) {
-    const modulesData =
-          Gerrit._getEndpointDetails(name, opt_options).filter(
-              data => data.pluginUrl.pathname.indexOf('.html') !== -1);
-    if (!modulesData.length) {
-      return [];
-    }
-    return Array.from(new Set(modulesData.map(m => m.pluginUrl)));
+  Gerrit._getPluginScreenName = function(pluginName, screenName) {
+    return `${pluginName}-screen-${screenName}`;
   };
 
   window.Gerrit = Gerrit;

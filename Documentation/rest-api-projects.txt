@@ -149,6 +149,8 @@ Prefix(p)::
 Limit the results to those projects that start with the specified
 prefix.
 +
+The match is case sensitive. May not be used together with `m` or `r`.
++
 List all projects that start with `platform/`:
 +
 .Request
@@ -181,6 +183,8 @@ Limit the results to those projects that match the specified regex.
 Boundary matchers '^' and '$' are implicit. For example: the regex 'test.*' will
 match any projects that start with 'test' and regex '.*test' will match any
 project that end with 'test'.
++
+The match is case sensitive. May not be used together with `m` or `p`.
 +
 List all projects that match regex `test.*project`:
 +
@@ -233,6 +237,8 @@ Query the second project in the project list:
 
 Substring(m)::
 Limit the results to those projects that match the specified substring.
++
+The match is case insensitive. May not be used together with `r` or `p`.
 +
 List all projects that match substring `test/`:
 +
@@ -318,6 +324,117 @@ GET /projects/?type=PERMISSIONS HTTP/1.0
   }
 ----
 
+All::
+Get all projects, including those whose state is "HIDDEN". May not be used
+together with the `state` option.
++
+.Request
+----
+GET /projects/?all HTTP/1.0
+----
++
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "All-Projects" {
+      "id": "All-Projects",
+      "state": "ACTIVE"
+    },
+    "some-other-project": {
+      "id": "some-other-project",
+      "state": "HIDDEN"
+    }
+  }
+----
+
+State(s)::
+Get all projects with the given state. May not be used together with the
+`all` option.
++
+.Request
+----
+GET /projects/?state=HIDDEN HTTP/1.0
+----
++
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "some-other-project": {
+      "id": "some-other-project",
+      "state": "HIDDEN"
+    }
+  }
+----
+
+[[query-projects]]
+=== Query Projects
+--
+'GET /projects/?query=<query>'
+--
+
+Queries projects visible to the caller. The
+link:user-search-projects.html#_search_operators[query string] must be
+provided by the `query` parameter. The `start` and `limit` parameters
+can be used to skip/limit results.
+
+As result a list of link:#project-info[ProjectInfo] entities is returned.
+
+.Request
+----
+  GET /projects/?query=name:test HTTP/1.0
+----
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "test": {
+      "id": "test",
+      "description": "\u003chtml\u003e is escaped"
+    }
+  }
+----
+
+[[project-query-limit]]
+==== Project Limit
+The `/projects/?query=<query>` URL also accepts a limit integer in the
+`limit` parameter. This limits the results to `limit` projects.
+
+Query the first 25 projects in project list.
+----
+  GET /projects/?query=<query>&limit=25 HTTP/1.0
+----
+
+The `/projects/` URL also accepts a start integer in the `start`
+parameter. The results will skip `start` groups from project list.
+
+Query 25 projects starting from index 50.
+----
+  GET /groups/?query=<query>&limit=25&start=50 HTTP/1.0
+----
+
+[[project-query-options]]
+==== Project Options
+Additional fields can be obtained by adding `o` parameters. Each option
+requires more lookups and slows down the query response time to the
+client so they are generally disabled by default. The supported fields
+are described in the context of the link:#project-options[List Projects]
+REST endpoint.
+
 [[get-project]]
 === Get Project
 --
@@ -346,7 +463,16 @@ describes the project.
     "name": "plugins/replication",
     "parent": "Public-Plugins",
     "description": "Copies to other servers using the Git protocol",
-    "state": "ACTIVE"
+    "state": "ACTIVE",
+    "labels": {
+      "Code-Review": {
+        "values": {
+          " 0": "No score",
+          "+1": "Approved"
+        },
+        "default_value": 0
+      }
+    }
   }
 ----
 
@@ -368,7 +494,7 @@ link:#project-input[ProjectInput].
 
   {
     "description": "This is a demo project.",
-    "submit_type": "CHERRY_PICK",
+    "submit_type": "INHERIT",
     "owners": [
       "MyProject-Owners"
     ]
@@ -389,7 +515,16 @@ describes the created project.
     "id": "MyProject",
     "name": "MyProject",
     "parent": "All-Projects",
-    "description": "This is a demo project."
+    "description": "This is a demo project.",
+    "labels": {
+      "Code-Review": {
+        "values": {
+          " 0": "No score",
+          "+1": "Approved"
+        },
+        "default_value": 0
+      }
+    }
   }
 ----
 
@@ -686,7 +821,12 @@ read access to `refs/meta/config`.
       "configured_value": "15m",
       "inherited_value": "20m"
     },
-    "submit_type": "MERGE_IF_NECESSARY",
+    "submit_type": "INHERIT",
+    "default_submit_type": {
+      "value": "MERGE_IF_NECESSARY",
+      "configured_value": "INHERIT",
+      "inherited_value": "MERGE_IF_NECESSARY"
+    },
     "state": "ACTIVE",
     "commentlinks": {},
     "plugin_config": {
@@ -798,6 +938,11 @@ ConfigInfo] entity.
       "inherited_value": "20m"
     },
     "submit_type": "REBASE_IF_NECESSARY",
+    "default_submit_type": {
+      "value": "REBASE_IF_NECESSARY",
+      "configured_value": "INHERIT",
+      "inherited_value": "REBASE_IF_NECESSARY"
+    },
     "state": "ACTIVE",
     "commentlinks": {}
   }
@@ -937,7 +1082,9 @@ As response a link:#ban-result-info[BanResultInfo] entity is returned.
 
 Lists the access rights for a single project.
 
-As result a link:#project-access-info[ProjectAccessInfo] entity is returned.
+As result a
+link:rest-api-access.html#project-access-info[ProjectAccessInfo]
+entity is returned.
 
 .Request
 ----
@@ -981,7 +1128,23 @@ As result a link:#project-access-info[ProjectAccessInfo] entity is returned.
     ],
     "can_upload": true,
     "can_add": true,
-    "config_visible": true
+    "config_visible": true,
+    "groups": {
+      "c2ce4749a32ceb82cd6adcce65b8216e12afb41c": {
+        "url": "#/admin/groups/uuid-c2ce4749a32ceb82cd6adcce65b8216e12afb41c",
+        "options": {},
+        "description": "Users who perform batch actions on Gerrit",
+        "group_id": 2,
+        "owner": "Administrators",
+        "owner_id": "d5b7124af4de52924ed397913e2c3b37bf186948",
+        "created_on": "2009-06-08 23:31:00.000000000",
+        "name": "Non-Interactive Users"
+      },
+      "global:Anonymous-Users": {
+        "options": {},
+        "name": "Anonymous Users"
+      }
+    }
   }
 ----
 
@@ -1005,7 +1168,9 @@ the deductions by removing items that have no child elements.
 
 After removals have been applied, additions will be applied.
 
-As result a link:#project-access-info[ProjectAccessInfo] entity is returned.
+As result a
+link:rest-api-access.html#project-access-info[ProjectAccessInfo]
+entity is returned.
 
 .Request
 ----
@@ -1014,12 +1179,14 @@ As result a link:#project-access-info[ProjectAccessInfo] entity is returned.
 
   {
     "remove": [
-      "refs/*": {
-        "permissions": {
-          "read": {
-            "rules": {
-              "c2ce4749a32ceb82cd6adcce65b8216e12afb41c": {
-                "action": "ALLOW"
+      {
+        "refs/*": {
+          "permissions": {
+            "read": {
+              "rules": {
+                "c2ce4749a32ceb82cd6adcce65b8216e12afb41c": {
+                  "action": "ALLOW"
+                }
               }
             }
           }
@@ -1062,7 +1229,119 @@ As result a link:#project-access-info[ProjectAccessInfo] entity is returned.
     ],
     "can_upload": true,
     "can_add": true,
-    "config_visible": true
+    "config_visible": true,
+    "groups": {
+      "global:Anonymous-Users": {
+        "options": {},
+        "name": "Anonymous Users"
+      }
+    }
+  }
+----
+
+[[create-access-change]]
+=== Create Access Rights Change for review.
+--
+'PUT /projects/link:rest-api-projects.html#project-name[\{project-name\}]/access:review
+--
+
+Sets access rights for the project using the diff schema provided by
+link:#project-access-input[ProjectAccessInput]
+
+This takes the same input as link:#set-access[Update Access Rights], but creates a pending
+change for review. Like link:#create-change[Create Change], it returns
+a link:#change-info[ChangeInfo] entity describing the resulting change.
+
+.Request
+----
+  PUT /projects/MyProject/access:review HTTP/1.0
+  Content-Type: application/json; charset=UTF-8
+
+  {
+    "add":{
+      "refs/heads/*":{
+        "permissions":{
+          "read":{
+            "rules":{
+              "global:Anonymous-Users": {
+                "action":"DENY",
+                "force":false
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+----
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "id": "testproj~refs%2Fmeta%2Fconfig~Ieaf185bf90a1fc3b58461e399385e158a20b31a2",
+    "project": "testproj",
+    "branch": "refs/meta/config",
+    "hashtags": [],
+    "change_id": "Ieaf185bf90a1fc3b58461e399385e158a20b31a2",
+    "subject": "Review access change",
+    "status": "NEW",
+    "created": "2017-09-07 14:31:11.852000000",
+    "updated": "2017-09-07 14:31:11.852000000",
+    "submit_type": "CHERRY_PICK",
+    "mergeable": true,
+    "insertions": 2,
+    "deletions": 0,
+    "unresolved_comment_count": 0,
+    "has_review_started": true,
+    "_number": 7,
+    "owner": {
+      "_account_id": 1000000
+    }
+  }
+----
+
+[[check-access]]
+=== Check Access
+--
+'POST /projects/MyProject/check.access'
+--
+
+Runs access checks for other users. This requires the
+link:access-control.html#capability_administrateServer[Administrate Server]
+global capability.
+
+Input for the access checks that should be run must be provided in
+the request body inside a
+link:#access-check-input[AccessCheckInput] entity.
+
+.Request
+----
+  POST /projects/MyProject/check.access HTTP/1.0
+  Content-Type: application/json; charset=UTF-8
+
+  {
+    "account": "Kristen.Burns@gerritcodereview.com",
+    "ref": "refs/heads/secret/bla"
+  }
+----
+
+The result is a link:#access-check-info[AccessCheckInfo] entity
+detailing the access of the given user for the given project,
+project-ref, or project-permission-ref combination.
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "message": "user Kristen Burns \u003cKristen.Burns@gerritcodereview.com\u003e (1000098) cannot see ref refs/heads/secret/bla in project MyProject",
+    "status": 403
   }
 ----
 
@@ -1080,8 +1359,8 @@ returns immediately.
 
 .Response
 ----
-HTTP/1.1 202 Accepted
-Content-Disposition: attachment
+  HTTP/1.1 202 Accepted
+  Content-Disposition: attachment
 ----
 
 [[branch-endpoints]]
@@ -1153,12 +1432,11 @@ Limit the number of branches to be included in the results.
     {
       "ref": "HEAD",
       "revision": "master",
-      "can_delete": false
     }
   ]
 ----
 
-Skip(s)::
+Skip(S)::
 Skip the given number of branches from the beginning of the list.
 +
 .Request
@@ -1177,15 +1455,16 @@ Skip the given number of branches from the beginning of the list.
     {
       "ref": "HEAD",
       "revision": "master",
-      "can_delete": false
     }
   ]
 ----
 
 Substring(m)::
-Limit the results to those projects that match the specified substring.
+Limit the results to those branches that match the specified substring.
 +
-List all projects that match substring `test`:
+The match is case insensitive. May not be used together with `r`.
++
+List all branches that match substring `test`:
 +
 .Request
 ----
@@ -1211,8 +1490,10 @@ List all projects that match substring `test`:
 Regex(r)::
 Limit the results to those branches that match the specified regex.
 Boundary matchers '^' and '$' are implicit. For example: the regex 't*' will
-match any branches that start with 'test' and regex '*t' will match any
-branches that end with 'test'.
+match any branches that start with 't' and regex '*t' will match any
+branches that end with 't'.
++
+The match is case sensitive. May not be used together with `m`.
 +
 List all branches that match regex `t.*1`:
 +
@@ -1832,7 +2113,7 @@ Limit the number of tags to be included in the results.
   ]
 ----
 
-Skip(s)::
+Skip(S)::
 Skip the given number of tags from the beginning of the list.
 +
 .Request
@@ -1867,6 +2148,87 @@ Skip the given number of tags from the beginning of the list.
   ]
 ----
 
+Substring(m)::
+Limit the results to those tags that match the specified substring.
++
+The match is case insensitive.  May not be used together with `r`.
++
+List all tags that match substring `v2`:
+
++
+.Request
+----
+  GET /projects/testproject/tags?m=v2 HTTP/1.0
+----
++
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  [
+    {
+      "ref": "refs/tags/v2.0",
+      "revision": "1624f5af8ae89148d1a3730df8c290413e3dcf30"
+    },
+  ]
+----
+
+Regex(r)::
+Limit the results to those tags that match the specified regex.
+Boundary matchers '^' and '$' are implicit. For example: the regex 't*' will
+match any tags that start with 't' and regex '*t' will match any
+tags that end with 't'.
++
+The match is case sensitive.  May not be used together with `m`.
++
+List all tags that match regex `v.*0`:
++
+.Request
+----
+  GET /projects/testproject/tags?r=v.*0 HTTP/1.0
+----
++
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  [
+    {
+      "ref": "refs/tags/v1.0",
+      "revision": "49ce77fdcfd3398dc0dedbe016d1a425fd52d666",
+      "object": "1624f5af8ae89148d1a3730df8c290413e3dcf30",
+      "message": "Annotated tag",
+      "tagger": {
+        "name": "David Pursehouse",
+        "email": "david.pursehouse@sonymobile.com",
+        "date": "2014-10-06 07:35:03.000000000",
+        "tz": 540
+      }
+    },
+    {
+      "ref": "refs/tags/v2.0",
+      "revision": "1624f5af8ae89148d1a3730df8c290413e3dcf30"
+    },
+    {
+      "ref": "refs/tags/v3.0",
+      "revision": "c628685b3c5a3614571ecb5c8fceb85db9112313",
+      "object": "1624f5af8ae89148d1a3730df8c290413e3dcf30",
+      "message": "Signed tag\n-----BEGIN PGP SIGNATURE-----\nVersion: GnuPG v1.4.11 (GNU/Linux)\n\niQEcBAABAgAGBQJUMlqYAAoJEPI2qVPgglptp7MH/j+KFcittFbxfSnZjUl8n5IZ\nveZo7wE+syjD9sUbMH4EGv0WYeVjphNTyViBof+stGTNkB0VQzLWI8+uWmOeiJ4a\nzj0LsbDOxodOEMI5tifo02L7r4Lzj++EbqtKv8IUq2kzYoQ2xjhKfFiGjeYOn008\n9PGnhNblEHZgCHguGR6GsfN8bfA2XNl9B5Ysl5ybX1kAVs/TuLZR4oDMZ/pW2S75\nhuyNnSgcgq7vl2gLGefuPs9lxkg5Fj3GZr7XPZk4pt/x1oiH7yXxV4UzrUwg2CC1\nfHrBlNbQ4uJNY8TFcwof52Z0cagM5Qb/ZSLglHbqEDGA68HPqbwf5z2hQyU2/U4\u003d\n\u003dZtUX\n-----END PGP SIGNATURE-----",
+      "tagger": {
+        "name": "David Pursehouse",
+        "email": "david.pursehouse@sonymobile.com",
+        "date": "2014-10-06 09:02:16.000000000",
+        "tz": 540
+      }
+    }
+  ]
+----
 
 [[get-tag]]
 === Get Tag
@@ -2069,6 +2431,8 @@ The content is returned as base64 encoded string.
 
 Cherry-picks a commit of a project to a destination branch.
 
+To cherry pick a change revision, see link:rest-api-changes.html#cherry-pick[CherryPick].
+
 The destination branch must be provided in the request body inside a
 link:rest-api-changes.html#cherrypick-input[CherryPickInput] entity.
 If the commit message is not set, the commit message of the source
@@ -2149,7 +2513,7 @@ List all dashboards for the `work/my-project` project:
       "path": "closed",
       "description": "Merged and abandoned changes in last 7 weeks",
       "url": "/dashboard/?title\u003dClosed+changes\u0026Merged\u003dstatus:merged+age:7w\u0026Abandoned\u003dstatus:abandoned+age:7w",
-      "default": true,
+      "is_default": true,
       "title": "Closed changes",
       "sections": [
         {
@@ -2200,7 +2564,7 @@ that describes the dashboard.
     "path": "closed",
     "description": "Merged and abandoned changes in last 7 weeks",
     "url": "/dashboard/?title\u003dClosed+changes\u0026Merged\u003dstatus:merged+age:7w\u0026Abandoned\u003dstatus:abandoned+age:7w",
-    "default": true,
+    "is_default": true,
     "title": "Closed changes",
     "sections": [
       {
@@ -2236,7 +2600,7 @@ dashboard-id.
     "path": "closed",
     "description": "Merged and abandoned changes in last 7 weeks",
     "url": "/dashboard/?title\u003dClosed+changes\u0026Merged\u003dstatus:merged+age:7w\u0026Abandoned\u003dstatus:abandoned+age:7w",
-    "default": true,
+    "is_default": true,
     "title": "Closed changes",
     "sections": [
       {
@@ -2291,7 +2655,7 @@ link:#dashboard-info[DashboardInfo] entity.
     "path": "closed",
     "description": "Merged and abandoned changes in last 7 weeks",
     "url": "/dashboard/?title\u003dClosed+changes\u0026Merged\u003dstatus:merged+age:7w\u0026Abandoned\u003dstatus:abandoned+age:7w",
-    "default": true,
+    "is_default": true,
     "title": "Closed changes",
     "sections": [
       {
@@ -2366,6 +2730,34 @@ If the name ends with `.git`, the suffix will be automatically removed.
 [[json-entities]]
 == JSON Entities
 
+[[access-check-info]]
+=== AccessCheckInfo
+
+The `AccessCheckInfo` entity is the result of an access check.
+
+[options="header",cols="1,^1,5"]
+|=========================================
+|Field Name                  ||Description
+|`status`                    ||The HTTP status code for the access.
+200 means success, 403 means denied and 404 means the project does not exist.
+|`message`                   |optional|A clarifying message if `status` is not 200.
+|=========================================
+
+[[access-check-input]]
+=== AccessCheckInput
+The `AccessCheckInput` entity is either an account or
+(account, ref) tuple for which we want to check access.
+
+[options="header",cols="1,^1,5"]
+|=========================================
+|Field Name                  ||Description
+|`account`                   ||The account for which to check access
+|`ref`                       |optional|The refname for which to check
+access
+|`permission`                |optional|The ref permission for which to
+check. This defaults to `read`. If given, it `ref` must be given too.
+|=========================================
+
 [[ban-input]]
 === BanInput
 The `BanInput` entity contains information for banning commits in a
@@ -2399,7 +2791,7 @@ The `BranchInfo` entity contains information about a branch.
 |Field Name  ||Description
 |`ref`       ||The ref of the branch.
 |`revision`  ||The revision to which the branch points.
-|`can_delete`|`false` if not set|
+|`can_delete`|not set if `false`|
 Whether the calling user can delete this branch.
 |`web_links` |optional|
 Links to the branch in external sites as a list of
@@ -2464,14 +2856,19 @@ signed push validation is required on the project.
 |`reject_implicit_merges`|optional|
 link:#inherited-boolean-info[InheritedBooleanInfo] that tells whether
 implicit merges should be rejected on changes pushed to the project.
+|`private_by_default`     ||
+link:#inherited-boolean-info[InheritedBooleanInfo] that tells whether
+all new changes are set as private by default.
 |`max_object_size_limit`     ||
 The link:config-gerrit.html#receive.maxObjectSizeLimit[max object size
 limit] of this project as a link:#max-object-size-limit-info[
 MaxObjectSizeLimitInfo] entity.
+|`default_submit_type`     ||
+link:#submit-type-info[SubmitTypeInfo] that describes the default submit type of
+the project, when not overridden at the change level.
 |`submit_type`               ||
-The default submit type of the project, can be `MERGE_IF_NECESSARY`,
-`FAST_FORWARD_ONLY`, `REBASE_IF_NECESSARY`, `MERGE_ALWAYS` or
-`CHERRY_PICK`.
+Deprecated; equivalent to link:#submit-type-info[`value`] in
+`default_submit_type`.
 |`match_author_to_committer_date` |optional|
 link:#inherited-boolean-info[InheritedBooleanInfo] that indicates whether
 a change's author date will be changed to match its submitter date upon submit.
@@ -2494,6 +2891,9 @@ entities.
 |`actions`                                 |optional|
 Actions the caller might be able to perform on this project. The
 information is a map of view names to
+|`reject_empty_commit`                     |optional|
+link:#inherited-boolean-info[InheritedBooleanInfo] that tells whether
+empty commits should be rejected when a change is merged.
 link:rest-api-changes.html#action-info[ActionInfo] entities.
 |=======================================================
 
@@ -2548,7 +2948,7 @@ If set to `0`, the max object size limit is removed. +
 If not set, this setting is not updated.
 |`submit_type`                             |optional|
 The default submit type of the project, can be `MERGE_IF_NECESSARY`,
-`FAST_FORWARD_ONLY`, `REBASE_IF_NECESSARY`, `MERGE_ALWAYS` or
+`FAST_FORWARD_ONLY`, `REBASE_IF_NECESSARY`, `REBASE_ALWAYS`, `MERGE_ALWAYS` or
 `CHERRY_PICK`. +
 If not set, the submit type is not updated.
 |`state`                                   |optional|
@@ -2558,6 +2958,10 @@ If not set, the project state is not updated.
 |`plugin_config_values`                    |optional|
 Plugin configuration values as map which maps the plugin name to a map
 of parameter names to values.
+|`reject_empty_commit`                     |optional|
+Whether empty commits should be rejected when a change is merged.
+Can be `TRUE`, `FALSE` or `INHERIT`. +
+If not set, this setting is not updated.
 |======================================================
 
 [[config-parameter-info]]
@@ -2629,7 +3033,7 @@ Tokens such as `${project}` are not resolved.
 The URL under which the dashboard can be opened in the Gerrit Web UI. +
 The URL is relative to the canonical web URL. +
 Tokens in the queries such as `${project}` are resolved.
-|`default`         |not set if `false`|
+|`is_default`      |not set if `false`|
 Whether this is the default dashboard of the project.
 |`title`           |optional|The title of the dashboard.
 |`sections`        ||
@@ -2732,6 +3136,19 @@ The boolean value inherited from the parent. +
 Not set if there is no parent.
 |================================
 
+
+[[label-type-info]]
+=== LabelTypeInfo
+The `LabelTypeInfo` entity contains metadata about the labels that a
+project has.
+
+[options="header",cols="1,^2,4"]
+|================================
+|Field Name         ||Description
+|`values`           ||Map of the available values to their description.
+|`default_value`    ||The default value of this label.
+|================================
+
 [[max-object-size-limit-info]]
 === MaxObjectSizeLimitInfo
 The `MaxObjectSizeLimitInfo` entity contains information about the
@@ -2809,6 +3226,11 @@ is increased for each non-visible project).
 |`description` |optional|The description of the project.
 |`state`       |optional|`ACTIVE`, `READ_ONLY` or `HIDDEN`.
 |`branches`    |optional|Map of branch names to HEAD revisions.
+|`labels`      |optional|
+Map of label names to
+link:#label-type-info[LabelTypeInfo] entries.
+This field is filled for link:#create-project[Create Project] and
+link:#get-project[Get Project] calls.
 |`web_links`   |optional|
 Links to the project in external sites as a list of
 link:rest-api-changes.html#web-link-info[WebLinkInfo] entries.
@@ -2836,8 +3258,8 @@ Whether a permission-only project should be created.
 Whether an empty initial commit should be created.
 |`submit_type`               |optional|
 The submit type that should be set for the project
-(`MERGE_IF_NECESSARY`, `REBASE_IF_NECESSARY`, `FAST_FORWARD_ONLY`,
-`MERGE_ALWAYS`, `CHERRY_PICK`). +
+(`MERGE_IF_NECESSARY`, `REBASE_IF_NECESSARY`, `REBASE_ALWAYS`,
+`FAST_FORWARD_ONLY`, `MERGE_ALWAYS`, `CHERRY_PICK`). +
 If not set, `MERGE_IF_NECESSARY` is set as submit type unless
 link:config-gerrit.html#repository.name.defaultSubmitType[
 repository.<name>.defaultSubmitType] is set to a different value.
@@ -2873,6 +3295,9 @@ Common unit suffixes of 'k', 'm', or 'g' are supported.
 |`plugin_config_values`      |optional|
 Plugin configuration values as map which maps the plugin name to a map
 of parameter names to values.
+|`reject_empty_commit`       |optional|
+Whether empty commits should be rejected when a change is merged
+(`TRUE`, `FALSE`, `INHERIT`).
 |=========================================
 
 [[project-parent-input]]
@@ -2921,6 +3346,27 @@ statistics of a Git repository.
 |`size_of_packed_objects`  |Size of packed objects in bytes.
 |======================================
 
+[[submit-type-info]]
+=== SubmitTypeInfo
+Information about the link:project-configuration.html#submit_type[default submit
+type of a project], taking into account project inheritance.
+
+Valid values for each field are `MERGE_IF_NECESSARY`, `FAST_FORWARD_ONLY`,
+`REBASE_IF_NECESSARY`, `REBASE_ALWAYS`, `MERGE_ALWAYS` or `CHERRY_PICK`, plus
+`INHERIT` where applicable.
+
+[options="header",cols="1,6"]
+|===============================
+|Field Name         |Description
+|`value`            |
+The effective submit type value. Never `INHERIT`.
+|`configured_value` |
+The configured value, can be one of the submit types, or `INHERIT` to inherit
+from the parent project.
+|`inherited_value`  |
+The effective value that would be inherited from the parent. Never `INHERIT`.
+|===============================
+
 [[tag-info]]
 === TagInfo
 The `TagInfo` entity contains information about a tag.
@@ -2937,8 +3383,16 @@ tag points.
 the signature.
 |`tagger`|Only set for annotated tags, if present in the tag.|The tagger as a
 link:rest-api-changes.html#git-person-info[GitPersonInfo] entity.
-|`can_delete`|`false` if not set|
+|`created`|optional|The link:rest-api.html#timestamp[timestamp] of when the tag
+was created. For annotated and signed tags, this is the timestamp of the tag object
+and is the same as the `date` field in the `tagger`. For lightweight tags, it is
+the commit timestamp of the commit to which the tag points, when the object is a
+commit. It is not set when the object is any other type.
+|`can_delete`|not set if `false`|
 Whether the calling user can delete this tag.
+|`web_links` |optional|
+Links to the tag in external sites as a list of
+link:rest-api-changes.html#web-link-info[WebLinkInfo] entries.
 |=========================
 
 [[tag-input]]

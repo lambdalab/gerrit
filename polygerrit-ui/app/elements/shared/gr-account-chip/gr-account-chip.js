@@ -33,6 +33,12 @@
 
     properties: {
       account: Object,
+      additionalText: String,
+      disabled: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+      },
       removable: {
         type: Boolean,
         value: false,

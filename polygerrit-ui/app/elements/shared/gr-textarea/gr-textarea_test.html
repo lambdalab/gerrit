@@ -72,7 +72,7 @@ limitations under the License.
       element.$.textarea.selectionStart = 1;
       element.$.textarea.selectionEnd = 1;
       element.text = ':';
-      assert.isFalse(!element.$.emojiSuggestions.hidden);
+      assert.isFalse(!element.$.emojiSuggestions.isHidden);
     });
 
     test('emoji selector is not open when a general text is entered', () => {
@@ -80,7 +80,7 @@ limitations under the License.
       element.$.textarea.selectionStart = 9;
       element.$.textarea.selectionEnd = 9;
       element.text = 'some text';
-      assert.isFalse(!element.$.emojiSuggestions.hidden);
+      assert.isFalse(!element.$.emojiSuggestions.isHidden);
     });
 
     test('emoji selector opens when a colon is typed & the textarea has focus',
@@ -95,7 +95,7 @@ limitations under the License.
           element.$.textarea.selectionEnd = 2;
           element.text = ':t';
           flushAsynchronousOperations();
-          assert.isFalse(element.$.emojiSuggestions.hidden);
+          assert.isFalse(element.$.emojiSuggestions.isHidden);
           assert.equal(element._colonIndex, 0);
           assert.isFalse(element._hideAutocomplete);
           assert.equal(element._currentSearchString, 't');
@@ -165,57 +165,49 @@ limitations under the License.
       assert.equal(element.text, 'test test 😂 ');
     });
 
-    test('_getPositionOfCursor', () => {
+    test('_updateCaratPosition', () => {
       element.$.textarea.selectionStart = 4;
       element.$.textarea.selectionEnd = 4;
       element.text = 'test';
-      element._getPositionOfCursor();
+      element._updateCaratPosition();
       assert.deepEqual(element.$.hiddenText.innerHTML, element.text +
-          '<span></span>');
+          element.$.caratSpan.outerHTML);
     });
 
-    test('_updateSelectorPosition', () => {
-      const setPositionSpy =
-          sandbox.spy(element.$.emojiSuggestions, 'setPosition');
-      sandbox.stub(element, '_getPositionOfCursor', () => {
-        return {top: 100, left: 30};
-      });
-      sandbox.stub(element, '_getFontSize', () => 12);
-      sandbox.stub(element, '_getScrollTop', () => 100);
-      element._updateSelectorPosition();
-      assert.isTrue(setPositionSpy.lastCall.calledWithExactly('219px', '30px'));
-
-      element.fixedPositionDropdown = true;
-      element._updateSelectorPosition();
-      assert.isTrue(setPositionSpy.lastCall.calledWithExactly('119px', '30px'));
-    });
-
-    test('emoji dropdown is closed when dropdown-closed is fired', () => {
-      const resetSpy = sandbox.spy(element, '_resetAndFocus');
+    test('emoji dropdown is closed when iron-overlay-closed is fired', () => {
+      const resetSpy = sandbox.spy(element, '_resetEmojiDropdown');
       element.$.emojiSuggestions.fire('dropdown-closed');
       assert.isTrue(resetSpy.called);
     });
 
+    test('_onValueChanged fires bind-value-changed', () => {
+      const listenerStub = sinon.stub();
+      const eventObject = {currentTarget: {focused: false}};
+      element.addEventListener('bind-value-changed', listenerStub);
+      element._onValueChanged(eventObject);
+      assert.isTrue(listenerStub.called);
+    });
+
     suite('keyboard shortcuts', () => {
-      function setupDropdown() {
+      function setupDropdown(callback) {
         MockInteractions.focus(element.$.textarea);
-        flushAsynchronousOperations();
         element.$.textarea.selectionStart = 1;
         element.$.textarea.selectionEnd = 1;
         element.text = ':';
         element.$.textarea.selectionStart = 1;
-        element.$.textarea.selectionEnd = 1;
+        element.$.textarea.selectionEnd = 2;
         element.text = ':1';
+        flushAsynchronousOperations();
       }
 
       test('escape key', () => {
-        const resestSpy = sandbox.spy(element, '_resetAndFocus');
+        const resetSpy = sandbox.spy(element, '_resetEmojiDropdown');
         MockInteractions.pressAndReleaseKeyOn(element.$.textarea, 27);
-        assert.isFalse(resestSpy.called);
+        assert.isFalse(resetSpy.called);
         setupDropdown();
         MockInteractions.pressAndReleaseKeyOn(element.$.textarea, 27);
-        assert.isTrue(resestSpy.called);
-        assert.isFalse(!element.$.emojiSuggestions.hidden);
+        assert.isTrue(resetSpy.called);
+        assert.isFalse(!element.$.emojiSuggestions.isHidden);
       });
 
       test('up key', () => {

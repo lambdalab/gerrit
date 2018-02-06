@@ -34,6 +34,21 @@
     NOT_LATEST: 'not-latest',
   };
 
+  const ButtonLabels = {
+    START_REVIEW: 'Start review',
+    SEND: 'Send',
+  };
+
+  const ButtonTooltips = {
+    SAVE: 'Save reply but do not send',
+    START_REVIEW: 'Mark as ready for review and send reply',
+    SEND: 'Send reply',
+  };
+
+  // TODO(logan): Remove once the fix for issue 6841 is stable on
+  // googlesource.com.
+  const START_REVIEW_MESSAGE = 'This change is ready for review.';
+
   Polymer({
     is: 'gr-reply-dialog',
 
@@ -62,7 +77,17 @@
      * @event show-alert
      */
 
+    /**
+     * Fires when the reply dialog believes that the server side diff drafts
+     * have been updated and need to be refreshed.
+     *
+     * @event comment-refresh
+     */
+
     properties: {
+      /**
+       * @type {{ _number: number, removable_reviewers: Array }}
+       */
       change: Object,
       patchNum: String,
       canBeStarted: {
@@ -83,13 +108,18 @@
         type: String,
         value: '',
       },
-      diffDrafts: Object,
+      diffDrafts: {
+        type: Object,
+        observer: '_handleHeightChanged',
+      },
+      /** @type {!Function} */
       filterReviewerSuggestion: {
         type: Function,
         value() {
           return this._filterReviewerSuggestionGenerator(false);
         },
       },
+      /** @type {!Function} */
       filterCCSuggestion: {
         type: Function,
         value() {
@@ -97,7 +127,13 @@
         },
       },
       permittedLabels: Object,
+      /**
+       * @type {{ note_db_enabled: boolean }}
+       */
       serverConfig: Object,
+      /**
+       * @type {{ commentlinks: Array }}
+       */
       projectConfig: Object,
       knownLatestState: String,
       underReview: {
@@ -107,6 +143,7 @@
 
       _account: Object,
       _ccs: Array,
+      /** @type {?Object} */
       _ccPendingConfirmation: {
         type: Object,
         observer: '_reviewerPendingConfirmationUpdated',
@@ -116,12 +153,14 @@
         computed: '_computeMessagePlaceholder(canBeStarted)',
       },
       _owner: Object,
+      /** @type {?} */
       _pendingConfirmationDetails: Object,
       _includeComments: {
         type: Boolean,
         value: true,
       },
       _reviewers: Array,
+      /** @type {?Object} */
       _reviewerPendingConfirmation: {
         type: Object,
         observer: '_reviewerPendingConfirmationUpdated',
@@ -146,9 +185,27 @@
         type: Boolean,
         computed: '_computeCCsEnabled(serverConfig)',
       },
+      _savingComments: Boolean,
+      _reviewersMutated: {
+        type: Boolean,
+        value: false,
+      },
+      _labelsChanged: {
+        type: Boolean,
+        value: false,
+      },
+      _saveTooltip: {
+        type: String,
+        value: ButtonTooltips.SAVE,
+        readOnly: true,
+      },
     },
 
     FocusTarget,
+
+    // TODO(logan): Remove once the fix for issue 6841 is stable on
+    // googlesource.com.
+    START_REVIEW_MESSAGE,
 
     behaviors: [
       Gerrit.BaseUrlBehavior,
@@ -158,7 +215,8 @@
     ],
 
     keyBindings: {
-      esc: '_handleEscKey',
+      'esc': '_handleEscKey',
+      'ctrl+enter meta+enter': '_handleEnterKey',
     },
 
     observers: [
@@ -179,15 +237,27 @@
 
     open(opt_focusTarget) {
       this.knownLatestState = LatestPatchState.CHECKING;
-      this.fetchIsLatestKnown(this.change, this.$.restAPI)
-          .then(isUpToDate => {
-            this.knownLatestState = isUpToDate ?
+      this.fetchChangeUpdates(this.change, this.$.restAPI)
+          .then(result => {
+            this.knownLatestState = result.isLatest ?
                 LatestPatchState.LATEST : LatestPatchState.NOT_LATEST;
           });
 
       this._focusOn(opt_focusTarget);
-      if (!this.draft || !this.draft.length) {
+      if (this.quote && this.quote.length) {
+        // If a reply quote has been provided, use it and clear the property.
+        this.draft = this.quote;
+        this.quote = '';
+      } else {
+        // Otherwise, check for an unsaved draft in localstorage.
         this.draft = this._loadStoredDraft();
+      }
+      if (this.$.restAPI.hasPendingDiffDrafts()) {
+        this._savingComments = true;
+        this.$.restAPI.awaitPendingDiffDrafts().then(() => {
+          this.fire('comment-refresh');
+          this._savingComments = false;
+        });
       }
     },
 
@@ -198,7 +268,7 @@
     getFocusStops() {
       return {
         start: this.$.reviewers.focusStart,
-        end: this.$.cancelButton,
+        end: this.$.sendButton,
       };
     },
 
@@ -221,14 +291,20 @@
       this.cancel();
     },
 
+    _handleEnterKey(e) {
+      this._submit();
+    },
+
     _ccsChanged(splices) {
       if (splices && splices.indexSplices) {
+        this._reviewersMutated = true;
         this._processReviewerChange(splices.indexSplices, ReviewerTypes.CC);
       }
     },
 
     _reviewersChanged(splices) {
       if (splices && splices.indexSplices) {
+        this._reviewersMutated = true;
         this._processReviewerChange(splices.indexSplices,
             ReviewerTypes.REVIEWER);
         let key;
@@ -268,8 +344,8 @@
      * Resets the state of the _reviewersPendingRemove object, and removes
      * accounts if necessary.
      *
-     * @param {Boolean} isCancel true if the action is a cancel.
-     * @param {Object} opt_accountIdsTransferred map of account IDs that must
+     * @param {boolean} isCancel true if the action is a cancel.
+     * @param {Object=} opt_accountIdsTransferred map of account IDs that must
      *     not be removed, because they have been readded in another state.
      */
     _purgeReviewersPendingRemove(isCancel, opt_accountIdsTransferred) {
@@ -294,8 +370,11 @@
      * Removes an account from the change, both on the backend and the client.
      * Does nothing if the account is a pending addition.
      *
-     * @param {Object} account
-     * @param {ReviewerTypes} type
+     * @param {!Object} account
+     * @param {string} type
+     *
+     * * TODO(beckysiegel) submit Polymer PR
+     * @suppress {checkTypes}
      */
     _removeAccount(account, type) {
       if (account._pendingAdd) { return; }
@@ -326,19 +405,17 @@
       return {reviewer: reviewerId, confirmed};
     },
 
-    send(includeComments) {
-      if (this.knownLatestState === 'not-latest') {
-        this.fire('show-alert',
-            {message: 'Cannot reply to non-latest patch.'});
-        return;
-      }
-
+    send(includeComments, startReview) {
       const labels = this.$.labelScores.getLabelValues();
 
       const obj = {
         drafts: includeComments ? 'PUBLISH_ALL_REVISIONS' : 'KEEP',
         labels,
       };
+
+      if (startReview) {
+        obj.ready = true;
+      }
 
       if (this.draft != null) {
         obj.message = this.draft;
@@ -365,24 +442,75 @@
 
       this.disabled = true;
 
+      if (obj.ready && !obj.message) {
+        // TODO(logan): The server currently doesn't send email in this case.
+        // Insert a dummy message to force an email to be sent. Remove this
+        // once the fix for issue 6841 is stable on googlesource.com.
+        obj.message = START_REVIEW_MESSAGE;
+      }
+
       const errFn = this._handle400Error.bind(this);
       return this._saveReview(obj, errFn).then(response => {
-        if (!response || !response.ok) {
-          return response;
+        if (!response) {
+          // Null or undefined response indicates that an error handler
+          // took responsibility, so just return.
+          return {};
         }
+        if (!response.ok) {
+          this.fire('server-error', {response});
+          return {};
+        }
+
+        // TODO(logan): Remove once the required API changes are live and stable
+        // on googlesource.com.
+        return this._maybeSetReady(startReview, response).catch(err => {
+          // We catch error here because we still want to treat this as a
+          // successful review.
+          console.error('error setting ready:', err);
+        }).then(() => {
+          this.draft = '';
+          this._includeComments = true;
+          this.fire('send', null, {bubbles: false});
+          return accountAdditions;
+        });
+      }).then(result => {
         this.disabled = false;
-        this.draft = '';
-        this._includeComments = true;
-        this.fire('send', null, {bubbles: false});
-        return accountAdditions;
+        return result;
       }).catch(err => {
         this.disabled = false;
         throw err;
       });
     },
 
+    /**
+     * Returns a promise resolving to true if review was successfully posted,
+     * false otherwise.
+     *
+     * TODO(logan): Remove this once the required API changes are live and
+     * stable on googlesource.com.
+     */
+    _maybeSetReady(startReview, response) {
+      return this.$.restAPI.getResponseObject(response).then(result => {
+        if (!startReview || result.ready) {
+          return Promise.resolve();
+        }
+        // We don't have confirmation that review was started, so attempt to
+        // start review explicitly.
+        return this.$.restAPI.startReview(
+            this.change._number, null, response => {
+              // If we see a 409 response code, then that means the server
+              // *does* support moving from WIP->ready when posting a
+              // review. Only alert user for non-409 failures.
+              if (response.status !== 409) {
+                this.fire('server-error', {response});
+              }
+            });
+      });
+    },
+
     _focusOn(section) {
-      if (section === FocusTarget.ANY) {
+      // Safeguard- always want to focus on something.
+      if (!section || section === FocusTarget.ANY) {
         section = this._chooseFocusTarget();
       }
       if (section === FocusTarget.BODY) {
@@ -523,8 +651,8 @@
      * Generates a function to filter out reviewer/CC entries. When isCCs is
      * truthy, the function filters out entries that already exist in this._ccs.
      * When falsy, the function filters entries that exist in this._reviewers.
-     * @param {Boolean} isCCs
-     * @return {Function}
+     * @param {boolean} isCCs
+     * @return {!Function}
      */
     _filterReviewerSuggestionGenerator(isCCs) {
       return suggestion => {
@@ -575,41 +703,31 @@
         // the text field of the CC entry.
         return;
       }
-      this.send(this._includeComments).then(keepReviewers => {
+      this.send(this._includeComments, false).then(keepReviewers => {
         this._purgeReviewersPendingRemove(false, keepReviewers);
       });
     },
 
     _sendTapHandler(e) {
       e.preventDefault();
+      this._submit();
+    },
+
+    _submit() {
       if (this._ccsEnabled && !this.$$('#ccs').submitEntryText()) {
         // Do not proceed with the send if there is an invalid email entry in
         // the text field of the CC entry.
         return;
       }
-      if (this.canBeStarted) {
-        this._startReview().then(() => {
-          return this.send(this._includeComments);
-        }).then(keepReviewers => {
-          this._purgeReviewersPendingRemove(false, keepReviewers);
-        });
-        return;
-      }
-      this.send(this._includeComments).then(keepReviewers => {
-        this._purgeReviewersPendingRemove(false, keepReviewers);
-      });
+      return this.send(this._includeComments, this.canBeStarted)
+          .then(keepReviewers => {
+            this._purgeReviewersPendingRemove(false, keepReviewers);
+          });
     },
 
     _saveReview(review, opt_errFn) {
       return this.$.restAPI.saveChangeReview(this.change._number, this.patchNum,
           review, opt_errFn);
-    },
-
-    _startReview() {
-      if (!this.canBeStarted) {
-        return Promise.resolve();
-      }
-      return this.$.restAPI.startReview(this.change._number);
     },
 
     _reviewerPendingConfirmationUpdated(reviewer) {
@@ -656,6 +774,14 @@
       return draft ? draft.message : '';
     },
 
+    _handleAccountTextEntry() {
+      // When either of the account entries has input added to the autocomplete,
+      // it should trigger the save button to enable/
+      //
+      // Note: if the text is removed, the save button will not get disabled.
+      this._reviewersMutated = true;
+    },
+
     _draftChanged(newDraft, oldDraft) {
       this.debounce('store', () => {
         if (!newDraft.length && oldDraft) {
@@ -670,10 +796,12 @@
     },
 
     _handleHeightChanged(e) {
-      // If the textarea resizes, we need to re-fit the overlay.
-      this.debounce('autogrow', () => {
-        this.fire('autogrow');
-      });
+      this.fire('autogrow');
+    },
+
+    _handleLabelsChanged() {
+      this._labelsChanged = Object.keys(
+          this.$.labelScores.getLabelValues()).length !== 0;
     },
 
     _isState(knownLatestState, value) {
@@ -686,11 +814,36 @@
     },
 
     _computeSendButtonLabel(canBeStarted) {
-      return canBeStarted ? 'Start review' : 'Send';
+      return canBeStarted ? ButtonLabels.START_REVIEW : ButtonLabels.SEND;
+    },
+
+    _computeSendButtonTooltip(canBeStarted) {
+      return canBeStarted ? ButtonTooltips.START_REVIEW : ButtonTooltips.SEND;
     },
 
     _computeCCsEnabled(serverConfig) {
       return serverConfig && serverConfig.note_db_enabled;
+    },
+
+    _computeSavingLabelClass(savingComments) {
+      return savingComments ? 'saving' : '';
+    },
+
+    _computeSendButtonDisabled(buttonLabel, drafts, text, reviewersMutated,
+        labelsChanged, includeComments) {
+      if (buttonLabel === ButtonLabels.START_REVIEW) {
+        return false;
+      }
+      const hasDrafts = includeComments && Object.keys(drafts).length;
+      return !hasDrafts && !text.length && !reviewersMutated && !labelsChanged;
+    },
+
+    _computePatchSetWarning(patchNum, labelsChanged) {
+      let str = `Patch ${patchNum} is not latest.`;
+      if (labelsChanged) {
+        str += ' Voting on a non-latest patch will have no effect.';
+      }
+      return str;
     },
   });
 })();

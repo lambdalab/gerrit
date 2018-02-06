@@ -116,13 +116,47 @@ client so they are generally disabled by default. Optional fields are:
 
 [[includes]]
 --
-* `INCLUDES`: include list of directly included groups.
+* `INCLUDES`: include list of direct subgroups.
 --
 
 [[members]]
 --
 * `MEMBERS`: include list of direct group members.
 --
+
+==== Find groups that are owned by another group
+
+By setting `ownedBy` and specifying the link:#group-id[\{group-id\}] of another
+group, it is possible to find all the groups for which the owning group is the
+given group.
+
+.Request
+----
+  GET /groups/?ownedBy=7ca042f4d5847936fcb90ca91057673157fd06fc HTTP/1.0
+----
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "MyProject-Committers": {
+      "id": "9999c971bb4ab872aab759d8c49833ee6b9ff320",
+      "url": "#/admin/groups/uuid-9999c971bb4ab872aab759d8c49833ee6b9ff320",
+      "options": {
+        "visible_to_all": true
+      },
+      "description":"contains all committers for MyProject",
+      "group_id": 551,
+      "owner": "MyProject-Owners",
+      "owner_id": "7ca042f4d5847936fcb90ca91057673157fd06fc",
+      "created_on": "2013-02-01 09:59:32.126000000"
+    }
+  }
+----
 
 ==== Check if a group is owned by the calling user
 By setting the option `owned` and specifying a group to inspect with
@@ -220,6 +254,86 @@ error out.)
       "owner_id": "59b92f35489e62c80d1ab1bf0c2d17843038df8b",
       "created_on": "2013-02-01 09:59:32.126000000",
       "id": "59b92f35489e62c80d1ab1bf0c2d17843038df8b"
+    }
+  }
+----
+
+Regex(r)::
+Limit the results to those groups that match the specified regex.
++
+Boundary matchers '^' and '$' are implicit. For example: the regex 'test.*' will
+match any groups that start with 'test' and regex '.*test' will match any
+group that end with 'test'.
++
+The match is case sensitive.
++
+List all groups that match regex `test.*group`:
++
+.Request
+----
+  GET /groups/?r=test.*group HTTP/1.0
+----
++
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "test/some-group": {
+      "url": "#/admin/groups/uuid-59b92f35489e62c80d1ab1bf0c2d17843038df8b",
+      "options": {},
+      "description": "Gerrit Site Administrators",
+      "group_id": 1,
+      "owner": "Administrators",
+      "owner_id": "59b92f35489e62c80d1ab1bf0c2d17843038df8b",
+      "created_on": "2013-02-01 09:59:32.126000000",
+      "id": "59b92f35489e62c80d1ab1bf0c2d17843038df8b"
+    }
+    "test/some-other-group": {
+      "url": "#/admin/groups/uuid-99b92f35489e62c80d1ab1bf0c2d17843038df8b",
+      "options": {},
+      "description": "Gerrit Site Administrators",
+      "group_id": 1,
+      "owner": "Administrators",
+      "owner_id": "99b92f35489e62c80d1ab1bf0c2d17843038df8b",
+      "created_on": "2014-02-01 09:59:32.126000000",
+      "id": "99b92f35489e62c80d1ab1bf0c2d17843038df8b"
+    }
+  }
+
+----
+
+Substring(m)::
+Limit the results to those groups that match the specified substring.
++
+The match is case insensitive.
++
+List all groups that match substring `test/`:
++
+.Request
+----
+  GET /groups/?m=test%2F HTTP/1.0
+----
++
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "test/test": {
+      "url": "#/admin/groups/uuid-786a95e85f9a2223a96545f10003f396aba871f2",
+      "options": {},
+      "group_id": 15,
+      "owner": "test/test",
+      "owner_id": "786a95e85f9a2223a96545f10003f396aba871f2",
+      "created_on": "2017-07-11 13:56:24.000000000",
+      "id": "786a95e85f9a2223a96545f10003f396aba871f2"
     }
   }
 ----
@@ -1049,13 +1163,13 @@ already a member of the group.
   ]
 ----
 
-[[delete-group-member]]
-=== Delete Group Member
+[[remove-group-member]]
+=== Remove Group Member
 --
 'DELETE /groups/link:#group-id[\{group-id\}]/members/link:rest-api-accounts.html#account-id[\{account-id\}]'
 --
 
-Deletes a user from a Gerrit internal group.
+Removes a user from a Gerrit internal group.
 
 .Request
 ----
@@ -1067,15 +1181,15 @@ Deletes a user from a Gerrit internal group.
   HTTP/1.1 204 No Content
 ----
 
-[[delete-group-members]]
-=== Delete Group Members
+[[remove-group-members]]
+=== Remove Group Members
 --
 'POST /groups/link:#group-id[\{group-id\}]/members.delete'
 --
 
-Delete one or several users from a Gerrit internal group.
+Removes one or several users from a Gerrit internal group.
 
-The users to be deleted from the group must be provided in the request
+The users to be removed from the group must be provided in the request
 body as a link:#members-input[MembersInput] entity.
 
 .Request
@@ -1096,16 +1210,16 @@ body as a link:#members-input[MembersInput] entity.
   HTTP/1.1 204 No Content
 ----
 
-[[group-include-endpoints]]
-== Group Include Endpoints
+[[subgroup-endpoints]]
+== Subgroup Endpoints
 
-[[included-groups]]
-=== List Included Groups
+[[list-subgroups]]
+=== List Subgroups
 --
 'GET /groups/link:#group-id[\{group-id\}]/groups/'
 --
 
-Lists the directly included groups of a group.
+Lists the direct subgroups of a group.
 
 As result a list of link:#group-info[GroupInfo] entries is returned.
 The entries in the list are sorted by group name and UUID.
@@ -1137,13 +1251,13 @@ The entries in the list are sorted by group name and UUID.
   ]
 ----
 
-[[get-included-group]]
-=== Get Included Group
+[[get-subgroup]]
+=== Get Subgroup
 --
 'GET /groups/link:#group-id[\{group-id\}]/groups/link:#group-id[\{group-id\}]'
 --
 
-Retrieves an included group.
+Retrieves a subgroup.
 
 .Request
 ----
@@ -1151,7 +1265,7 @@ Retrieves an included group.
 ----
 
 As response a link:#group-info[GroupInfo] entity is returned that
-describes the included group.
+describes the subgroup.
 
 .Response
 ----
@@ -1173,13 +1287,13 @@ describes the included group.
   }
 ----
 
-[[include-group]]
-=== Include Group
+[[add-subgroup]]
+=== Add Subgroup
 --
 'PUT /groups/link:#group-id[\{group-id\}]/groups/link:#group-id[\{group-id\}]'
 --
 
-Includes an internal or external group into a Gerrit internal group.
+Adds an internal or external group as subgroup to a Gerrit internal group.
 External groups must be specified using the UUID.
 
 .Request
@@ -1188,7 +1302,7 @@ External groups must be specified using the UUID.
 ----
 
 As response a link:#group-info[GroupInfo] entity is returned that
-describes the included group.
+describes the subgroup.
 
 .Response
 ----
@@ -1210,11 +1324,11 @@ describes the included group.
   }
 ----
 
-The request also succeeds if the group is already included in this
-group, but then the HTTP response code is `200 OK`.
+The request also succeeds if the group is already a subgroup of this
+group.
 
-[[include-groups]]
-=== Include Groups
+[[add-subgroups]]
+=== Add Subgroups
 --
 'POST /groups/link:#group-id[\{group-id\}]/groups'
 --
@@ -1225,10 +1339,10 @@ OR
 'POST /groups/link:#group-id[\{group-id\}]/groups.add'
 --
 
-Includes one or several groups into a Gerrit internal group.
+Adds one or several groups as subgroups to a Gerrit internal group.
 
-The groups to be included into the group must be provided in the
-request body as a link:#groups-input[GroupsInput] entity.
+The subgroups to be added must be provided in the request body as a
+link:#groups-input[GroupsInput] entity.
 
 .Request
 ----
@@ -1247,8 +1361,8 @@ As response a list of link:#group-info[GroupInfo] entities is
 returned that describes the groups that were specified in the
 link:#groups-input[GroupsInput]. A link:#group-info[GroupInfo] entity
 is returned for each group specified in the input, independently of
-whether the group was newly included into the group or whether the
-group was already included in the group.
+whether the group was newly added as subgroup or whether the
+group was already a subgroup of the group.
 
 .Response
 ----
@@ -1283,13 +1397,13 @@ group was already included in the group.
   ]
 ----
 
-[[delete-included-group]]
-=== Delete Included Group
+[[remove-subgroup]]
+=== Remove Subgroup
 --
 'DELETE /groups/link:#group-id[\{group-id\}]/groups/link:#group-id[\{group-id\}]'
 --
 
-Deletes an included group from a Gerrit internal group.
+Removes a subgroup from a Gerrit internal group.
 
 .Request
 ----
@@ -1301,16 +1415,16 @@ Deletes an included group from a Gerrit internal group.
   HTTP/1.1 204 No Content
 ----
 
-[[delete-included-groups]]
-=== Delete Included Groups
+[[remove-subgroups]]
+=== Remove Subgroups
 --
 'POST /groups/link:#group-id[\{group-id\}]/groups.delete'
 --
 
-Delete one or several included groups from a Gerrit internal group.
+Removes one or several subgroups from a Gerrit internal group.
 
-The groups to be deleted from the group must be provided in the request
-body as a link:#groups-input[GroupsInput] entity.
+The subgroups to be removed must be provided in the request body as a
+link:#groups-input[GroupsInput] entity.
 
 .Request
 ----
@@ -1415,9 +1529,9 @@ A list of link:rest-api-accounts.html#account-info[AccountInfo]
 entities describing the direct members. +
 Only set if link:#members[members] are requested.
 |`includes`    |optional, only for internal groups|
-A list of link:#group-info[GroupInfo] entities describing the directly
-included groups. +
-Only set if link:#includes[included groups] are requested.
+A list of link:#group-info[GroupInfo] entities describing the direct
+subgroups. +
+Only set if link:#includes[subgroups] are requested.
 |===========================
 
 The type of a group can be deduced from the group's UUID:

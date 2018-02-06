@@ -16,13 +16,20 @@
 
   const BOTTOM_OFFSET = 7.2; // Height of the arrow in tooltip.
 
+  window.Gerrit = window.Gerrit || {};
+
   /** @polymerBehavior Gerrit.TooltipBehavior */
-  const TooltipBehavior = {
+  Gerrit.TooltipBehavior = {
 
     properties: {
       hasTooltip: {
         type: Boolean,
         observer: '_setupTooltipListeners',
+      },
+      positionBelow: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
       },
 
       _isTouchDevice: {
@@ -31,7 +38,7 @@
           return 'ontouchstart' in document.documentElement;
         },
       },
-      _tooltip: Element,
+      _tooltip: Object,
       _titleText: String,
       _hasSetupTooltipListeners: {
         type: Boolean,
@@ -71,6 +78,7 @@
       const tooltip = document.createElement('gr-tooltip');
       tooltip.text = this._titleText;
       tooltip.maxWidth = this.getAttribute('max-width');
+      tooltip.positionBelow = this.getAttribute('position-below');
 
       // Set visibility to hidden before appending to the DOM so that
       // calculations can be made based on the element’s size.
@@ -103,6 +111,9 @@
     },
 
     _positionTooltip(tooltip) {
+      // This flush is needed for tooltips to be positioned correctly in Firefox
+      // and Safari.
+      Polymer.dom.flush();
       const rect = this.getBoundingClientRect();
       const boxRect = tooltip.getBoundingClientRect();
       const parentRect = tooltip.parentElement.getBoundingClientRect();
@@ -120,12 +131,14 @@
         });
       }
       tooltip.style.left = Math.max(0, left) + 'px';
-      tooltip.style.top = Math.max(0, top) + 'px';
-      tooltip.style.transform = 'translateY(calc(-100% - ' + BOTTOM_OFFSET +
-          'px))';
+
+      if (!this.positionBelow) {
+        tooltip.style.top = Math.max(0, top) + 'px';
+        tooltip.style.transform = 'translateY(calc(-100% - ' + BOTTOM_OFFSET +
+            'px))';
+      } else {
+        tooltip.style.top = top + rect.height + BOTTOM_OFFSET + 'px';
+      }
     },
   };
-
-  window.Gerrit = window.Gerrit || {};
-  window.Gerrit.TooltipBehavior = TooltipBehavior;
 })(window);

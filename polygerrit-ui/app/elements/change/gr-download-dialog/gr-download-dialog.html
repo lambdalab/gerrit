@@ -14,8 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<link rel="import" href="../../../behaviors/rest-client-behavior/rest-client-behavior.html">
 <link rel="import" href="../../../bower_components/polymer/polymer.html">
+
+<link rel="import" href="../../../behaviors/gr-patch-set-behavior/gr-patch-set-behavior.html">
+<link rel="import" href="../../../behaviors/rest-client-behavior/rest-client-behavior.html">
 <link rel="import" href="../../shared/gr-download-commands/gr-download-commands.html">
 <link rel="import" href="../../../styles/shared-styles.html">
 
@@ -75,10 +77,15 @@ limitations under the License.
       <div class="patchFiles">
         <label>Patch file</label>
         <div>
-          <a id="download" href$="[[_computeDownloadLink(change, patchNum)]]">
+          <a
+              id="download"
+              href$="[[_computeDownloadLink(change, patchNum)]]"
+              download>
             [[_computeDownloadFilename(change, patchNum)]]
           </a>
-          <a href$="[[_computeZipDownloadLink(change, patchNum)]]">
+          <a
+              href$="[[_computeZipDownloadLink(change, patchNum)]]"
+              download>
             [[_computeZipDownloadFilename(change, patchNum)]]
           </a>
         </div>
@@ -87,7 +94,9 @@ limitations under the License.
         <label>Archive</label>
         <div id="archives" class="archives">
           <template is="dom-repeat" items="[[config.archives]]" as="format">
-            <a href$="[[_computeArchiveDownloadLink(change, patchNum, format)]]">
+            <a
+                href$="[[_computeArchiveDownloadLink(change, patchNum, format)]]"
+                download>
               [[format]]
             </a>
           </template>

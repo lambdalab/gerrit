@@ -15,6 +15,14 @@
   'use strict';
 
   const STORAGE_DEBOUNCE_INTERVAL = 400;
+  const TOAST_DEBOUNCE_INTERVAL = 200;
+
+  const SAVING_MESSAGE = 'Saving';
+  const DRAFT_SINGULAR = 'draft...';
+  const DRAFT_PLURAL = 'drafts...';
+  const SAVED_MESSAGE = 'All changes saved';
+  const SAVING_PROGRESS_MESSAGE = 'Saving draft...';
+  const DiSCARDING_PROGRESS_MESSAGE = 'Discarding draft...';
 
   Polymer({
     is: 'gr-diff-comment',
@@ -53,6 +61,7 @@
 
     properties: {
       changeNum: String,
+      /** @type {?} */
       comment: {
         type: Object,
         notify: true,
@@ -88,6 +97,7 @@
         value: true,
         observer: '_toggleCollapseClass',
       },
+      /** @type {?} */
       projectConfig: Object,
       robotButtonDisabled: Boolean,
       _isAdmin: {
@@ -95,7 +105,7 @@
         value: false,
       },
 
-      _xhrPromise: Object,  // Used for testing.
+      _xhrPromise: Object, // Used for testing.
       _messageText: {
         type: String,
         value: '',
@@ -107,6 +117,13 @@
         type: Boolean,
         observer: '_toggleResolved',
       },
+
+      _numPendingDraftRequests: {
+        type: Object,
+        value: {number: 0}, // Intentional to share the object across instances.
+      },
+
+      _savingMessage: String,
     },
 
     observers: [
@@ -162,27 +179,37 @@
       return this.$.restAPI.getIsAdmin();
     },
 
-    save() {
-      this.comment.message = this._messageText;
+    /**
+     * @param {*=} opt_comment
+     */
+    save(opt_comment) {
+      let comment = opt_comment;
+      if (!comment) {
+        comment = this.comment;
+        this.comment.message = this._messageText;
+      }
 
       this.disabled = true;
 
-      this._eraseDraftComment();
+      if (!this._messageText) {
+        return this._discardDraft();
+      }
 
-      this._xhrPromise = this._saveDraft(this.comment).then(response => {
+      this._xhrPromise = this._saveDraft(comment).then(response => {
         this.disabled = false;
         if (!response.ok) { return response; }
 
+        this._eraseDraftComment();
         return this.$.restAPI.getResponseObject(response).then(obj => {
-          const comment = obj;
-          comment.__draft = true;
+          const resComment = obj;
+          resComment.__draft = true;
           // Maintain the ephemeral draft ID for identification by other
           // elements.
           if (this.comment.__draftID) {
-            comment.__draftID = this.comment.__draftID;
+            resComment.__draftID = this.comment.__draftID;
           }
-          comment.__commentSide = this.commentSide;
-          this.comment = comment;
+          resComment.__commentSide = this.commentSide;
+          this.comment = resComment;
           this.editing = false;
           this._fireSave();
           return obj;
@@ -191,6 +218,8 @@
         this.disabled = false;
         throw err;
       });
+
+      return this._xhrPromise;
     },
 
     _eraseDraftComment() {
@@ -215,6 +244,11 @@
       }
     },
 
+    /**
+     * @param {!Object=} opt_mixin
+     *
+     * @return {!Object}
+     */
     _getEventPayload(opt_mixin) {
       return Object.assign({}, opt_mixin, {
         comment: this.comment,
@@ -261,12 +295,15 @@
       return isAdmin && !draft ? 'showDeleteButtons' : '';
     },
 
-    _computeSaveDisabled(draft) {
-      return draft == null || draft.trim() == '';
+    _computeSaveDisabled(draft, comment, resolved) {
+      // If resolved state has changed and a msg exists, save should be enabled.
+      if (comment.unresolved === resolved && draft) { return false; }
+      return !draft || draft.trim() === '';
     },
 
     _handleSaveKey(e) {
-      if (this._messageText.length) {
+      if (!this._computeSaveDisabled(this._messageText, this.comment,
+          this.resolved)) {
         e.preventDefault();
         this._handleSave(e);
       }
@@ -298,12 +335,8 @@
     _messageTextChanged(newValue, oldValue) {
       if (!this.comment || (this.comment && this.comment.id)) { return; }
 
-      // Keep comment.message in sync so that gr-diff-comment-thread is aware
-      // of the current message in the case that another comment is deleted.
-      this.comment.message = this._messageText || '';
       this.debounce('store', () => {
         const message = this._messageText;
-
         const commentLocation = {
           changeNum: this.changeNum,
           patchNum: this._getPatchNum(),
@@ -319,7 +352,6 @@
         } else {
           this.$.storage.setDraftComment(commentLocation, message);
         }
-        this._fireUpdate();
       }, STORAGE_DEBOUNCE_INTERVAL);
     },
 
@@ -372,13 +404,20 @@
 
     _handleSave(e) {
       e.preventDefault();
+
+      // Ignore saves started while already saving.
+      if (this.disabled) { return; }
+
       this.set('comment.__editing', false);
       this.save();
     },
 
     _handleCancel(e) {
       e.preventDefault();
-      if (!this.comment.message || this.comment.message.trim().length === 0) {
+
+      if (!this.comment.message ||
+          this.comment.message.trim().length === 0 ||
+          !this.comment.id) {
         this._fireDiscard();
         return;
       }
@@ -393,9 +432,25 @@
 
     _handleDiscard(e) {
       e.preventDefault();
+
+      if (!this._messageText) {
+        this._discardDraft();
+        return;
+      }
+      this._openOverlay(this.$.confirmDiscardOverlay);
+    },
+
+    _handleConfirmDiscard(e) {
+      e.preventDefault();
+      this._closeConfirmDiscardOverlay();
+      this._discardDraft();
+    },
+
+    _discardDraft() {
       if (!this.comment.__draft) {
         throw Error('Cannot discard a non-draft comment.');
       }
+      this._savingMessage = DiSCARDING_PROGRESS_MESSAGE;
       this.editing = false;
       this.disabled = true;
       this._eraseDraftComment();
@@ -415,15 +470,77 @@
         this.disabled = false;
         throw err;
       });
+
+      return this._xhrPromise;
+    },
+
+    _closeConfirmDiscardOverlay() {
+      this._closeOverlay(this.$.confirmDiscardOverlay);
+    },
+
+    _getSavingMessage(numPending) {
+      if (numPending === 0) { return SAVED_MESSAGE; }
+      return [
+        SAVING_MESSAGE,
+        numPending,
+        numPending === 1 ? DRAFT_SINGULAR : DRAFT_PLURAL,
+      ].join(' ');
+    },
+
+    _showStartRequest() {
+      const numPending = ++this._numPendingDraftRequests.number;
+      this._updateRequestToast(numPending);
+    },
+
+    _showEndRequest() {
+      const numPending = --this._numPendingDraftRequests.number;
+      this._updateRequestToast(numPending);
+    },
+
+    _handleFailedDraftRequest() {
+      this._numPendingDraftRequests.number--;
+
+      // Cancel the debouncer so that error toasts from the error-manager will
+      // not be overridden.
+      this.cancelDebouncer('draft-toast');
+    },
+
+    _updateRequestToast(numPending) {
+      const message = this._getSavingMessage(numPending);
+      this.debounce('draft-toast', () => {
+        // Note: the event is fired on the body rather than this element because
+        // this element may not be attached by the time this executes, in which
+        // case the event would not bubble.
+        document.body.dispatchEvent(new CustomEvent('show-alert',
+            {detail: {message}, bubbles: true}));
+      }, TOAST_DEBOUNCE_INTERVAL);
     },
 
     _saveDraft(draft) {
-      return this.$.restAPI.saveDiffDraft(this.changeNum, this.patchNum, draft);
+      this._savingMessage = SAVING_PROGRESS_MESSAGE;
+      this._showStartRequest();
+      return this.$.restAPI.saveDiffDraft(this.changeNum, this.patchNum, draft)
+          .then(result => {
+            if (result.ok) {
+              this._showEndRequest();
+            } else {
+              this._handleFailedDraftRequest();
+            }
+            return result;
+          });
     },
 
     _deleteDraft(draft) {
+      this._showStartRequest();
       return this.$.restAPI.deleteDiffDraft(this.changeNum, this.patchNum,
-          draft);
+          draft).then(result => {
+            if (result.ok) {
+              this._showEndRequest();
+            } else {
+              this._handleFailedDraftRequest();
+            }
+            return result;
+          });
     },
 
     _getPatchNum() {
@@ -466,21 +583,40 @@
       this.resolved = !this.resolved;
     },
 
-    _toggleResolved(resolved) {
-      this.comment.unresolved = !resolved;
-      this.fire('comment-update', this._getEventPayload());
+    _toggleResolved(resolved, previousValue) {
+      // Do not proceed if this call is for the initial definition of the
+      // resolved property.
+      if (previousValue === undefined) { return; }
+
+      // Modify payload instead of this.comment, as this.comment is passed from
+      // the parent by ref.
+      const payload = this._getEventPayload();
+      payload.comment.unresolved = !resolved;
+      this.fire('comment-update', payload);
+      if (!this.editing) {
+        // Save the resolved state immediately.
+        this.save(payload.comment);
+      }
     },
 
     _handleCommentDelete() {
-      Polymer.dom(Gerrit.getRootElement()).appendChild(this.$.overlay);
-      this.async(() => {
-        this.$.overlay.open();
-      }, 1);
+      this._openOverlay(this.$.confirmDeleteOverlay);
     },
 
     _handleCancelDeleteComment() {
-      Polymer.dom(Gerrit.getRootElement()).removeChild(this.$.overlay);
-      this.$.overlay.close();
+      this._closeOverlay(this.$.confirmDeleteOverlay);
+    },
+
+    _openOverlay(overlay) {
+      Polymer.dom(Gerrit.getRootElement()).appendChild(overlay);
+      this.async(() => {
+        overlay.open();
+      }, 1);
+    },
+
+    _closeOverlay(overlay) {
+      Polymer.dom(Gerrit.getRootElement()).removeChild(overlay);
+      overlay.close();
     },
 
     _handleConfirmDeleteComment() {

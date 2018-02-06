@@ -13,6 +13,13 @@ The following metrics are reported.
 * `build/label`: Version of Gerrit server software.
 * `events`: Triggered events.
 
+=== Actions
+
+* `action/retry_attempt_counts`: Distribution of number of attempts made
+by RetryHelper to execute an action (1 == single attempt, no retry)
+* `action/retry_timeout_count`: Number of action executions of RetryHelper
+that ultimately timed out
+
 === Process
 
 * `proc/birth_timestamp`: Time at which the Gerrit process started.
@@ -43,6 +50,7 @@ objects needing finalization.
 * `http/server/error_count`: Rate of REST API error responses.
 * `http/server/success_count`: Rate of REST API success responses.
 * `http/server/rest_api/count`: Rate of REST API calls by view.
+* `http/server/rest_api/change_id_type`: Rate of REST API calls by change ID type.
 * `http/server/rest_api/error_count`: Rate of REST API calls by view.
 * `http/server/rest_api/server_latency`: REST API call latency by view.
 * `http/server/rest_api/response_bytes`: Size of REST API response on network
@@ -110,6 +118,10 @@ for reviewer suggestion.
 reviewer suggestion.
 * `reviewer_suggestion/query_groups`: Latency for querying groups for reviewer
 suggestion.
+
+=== Repo Sequences
+
+* `sequence/next_id_latency`: Latency of requesting IDs from repo sequences.
 
 === Replication Plugin
 

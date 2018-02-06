@@ -1,25 +1,46 @@
 # PolyGerrit
 
-## Installing [Node.js](https://nodejs.org/en/download/)
+## Installing [Bazel](https://bazel.build/)
+
+Follow the instructions
+[here](https://gerrit-review.googlesource.com/Documentation/dev-bazel.html#_installation)
+to get and install Bazel.
+
+## Installing [Node.js](https://nodejs.org/en/download/) and npm packages
 
 The minimum nodejs version supported is 6.x+
 
 ```sh
 # Debian experimental
 sudo apt-get install nodejs-legacy
+sudo apt-get install npm
 
 # OS X with Homebrew
 brew install node
+brew install npm
 ```
 
 All other platforms: [download from
 nodejs.org](https://nodejs.org/en/download/).
 
-## Installing [Bazel](https://bazel.build/)
+Various steps below require installing additional npm packages. The full list of
+dependencies can be installed with:
 
-Follow the instructions
-[here](https://gerrit-review.googlesource.com/Documentation/dev-bazel.html#_installation)
-to get and install Bazel.
+```sh
+sudo npm install -g \
+  eslint \
+  eslint-config-google \
+  eslint-plugin-html \
+  typescript \
+  fried-twinkie \
+  polylint \
+  web-component-tester
+```
+
+It may complain about a missing `typescript@2.3.4` peer dependency, which is
+harmless.
+
+If you're interested in the details, keep reading.
 
 ## Local UI, Production Data
 
@@ -78,18 +99,10 @@ bazel build polygerrit &&
 
 ## Running Tests
 
-One-time setup:
+This step requires the `web-component-tester` npm module.
 
-```sh
-# Debian/Ubuntu
-sudo apt-get install npm
-
-# OS X with Homebrew
-brew install npm
-
-# All platforms (including those above)
-sudo npm install -g web-component-tester
-```
+Note: it may be necessary to add the options `--unsafe-perm=true --allow-root`
+to the `npm install` command to avoid file permission errors.
 
 Run all web tests:
 
@@ -116,6 +129,17 @@ For interactively working on a single test file, do the following:
 
 Then visit http://localhost:8081/elements/foo/bar_test.html
 
+To run Chrome tests in headless mode:
+
+```sh
+WCT_HEADLESS_MODE=1 ./polygerrit-ui/app/run_test.sh
+```
+
+Toolchain requirements for headless mode:
+
+* Chrome: 59+
+* web-component-tester: v6.5.0+
+
 ## Style guide
 
 We follow the [Google JavaScript Style Guide](https://google.github.io/styleguide/javascriptguide.xml)
@@ -123,11 +147,7 @@ with a few exceptions. When in doubt, remain consistent with the code around you
 
 In addition, we encourage the use of [ESLint](http://eslint.org/).
 It is available as a command line utility, as well as a plugin for most editors
-and IDEs. It, along with a few dependencies, can also be installed through NPM:
-
-```sh
-sudo npm install -g eslint eslint-config-google eslint-plugin-html
-```
+and IDEs.
 
 `eslint-config-google` is a port of the Google JS Style Guide to an ESLint
 config module, and `eslint-plugin-html` allows ESLint to lint scripts inside
@@ -149,16 +169,39 @@ Some useful commands:
 * To run the linter on all of your local changes:
 `git diff --name-only master | xargs eslint --ext .html,.js`
 
-We also use the polylint tool to lint use of Polymer. To install polylint,
+We also use the `polylint` tool to lint use of Polymer. To install polylint,
 execute the following command.
-
-```sh
-npm install -g polylint
-```
 
 To run polylint, execute the following command.
 
 ```sh
 bazel test //polygerrit-ui/app:polylint_test
 ```
+## Template Type Safety
+Polymer elements are not type checked against the element definition, making it trivial to break the display when refactoring or moving code. We now run additional tests to help ensure that template types are checked.
 
+A few notes to ensure that these tests pass
+- Any functions with optional parameters will need closure annotations.
+- Any Polymer parameters that are nullable or can be multiple types (other than the one explicitly delared) will need type annotations.
+
+These tests require the `typescript` and `fried-twinkie` npm packages.
+
+To run on all files, execute the following command:
+
+```sh
+bazel test //polygerrit-ui/app:all --test_tag_filters=template --test_output errors
+```
+
+To run on a specific top level directory (ex: change-list)
+```sh
+bazel test //polygerrit-ui/app:template_test_change-list --test_output errors
+```
+
+To run on a specific file (ex: gr-change-list-view), execute the following command:
+```sh
+bazel test //polygerrit-ui/app:template_test_<TOP_LEVEL_DIRECTORY> --test_arg=<VIEW_NAME> --test_output errors
+```
+
+```sh
+bazel test //polygerrit-ui/app:template_test_change-list --test_arg=gr-change-list-view  --test_output errors
+```

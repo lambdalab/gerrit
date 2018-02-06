@@ -18,31 +18,68 @@
     is: 'gr-account-label',
 
     properties: {
+      /**
+       * @type {{ name: string, status: string }}
+       */
       account: Object,
       avatarImageSize: {
         type: Number,
         value: 32,
       },
-      showEmail: {
+      title: {
+        type: String,
+        reflectToAttribute: true,
+        computed: '_computeAccountTitle(account, additionalText)',
+      },
+      additionalText: String,
+      hasTooltip: {
+        type: Boolean,
+        reflectToAttribute: true,
+        computed: '_computeHasTooltip(account)',
+      },
+      hideAvatar: {
         type: Boolean,
         value: false,
       },
+      _serverConfig: {
+        type: Object,
+        value: null,
+      },
     },
 
-    _computeAccountTitle(account) {
-      if (!account || (!account.name && !account.email)) { return; }
+    behaviors: [
+      Gerrit.AnonymousNameBehavior,
+      Gerrit.TooltipBehavior,
+    ],
+
+    ready() {
+      if (!this.additionalText) { this.additionalText = ''; }
+      this.$.restAPI.getConfig()
+          .then(config => { this._serverConfig = config; });
+    },
+
+    _computeName(account, config) {
+      return this.getUserName(config, account, false);
+    },
+
+    _computeAccountTitle(account, tooltip) {
+      if (!account) { return; }
       let result = '';
-      if (account.name) {
-        result += account.name;
+      if (this._computeName(account, this._serverConfig)) {
+        result += this._computeName(account, this._serverConfig);
       }
       if (account.email) {
         result += ' <' + account.email + '>';
       }
+      if (this.additionalText) {
+        return result + ' ' + this.additionalText;
+      }
       return result;
     },
 
-    _computeShowEmail(showEmail, account) {
-      return !!(showEmail && account && account.email);
+    _computeShowEmailClass(account) {
+      if (!account || account.name || !account.email) { return ''; }
+      return 'showEmail';
     },
 
     _computeEmailStr(account) {
@@ -53,6 +90,11 @@
         return '(' + account.email + ')';
       }
       return account.email;
+    },
+
+    _computeHasTooltip(account) {
+      // If an account has loaded to fire this method, then set to true.
+      return !!account;
     },
   });
 })();

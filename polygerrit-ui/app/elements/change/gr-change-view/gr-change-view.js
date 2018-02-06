@@ -19,14 +19,11 @@
     MISSING: 'missing',
   };
   const CHANGE_ID_REGEX_PATTERN = /^Change-Id\:\s(I[0-9a-f]{8,40})/gm;
-  const COMMENT_SAVE = 'Saving... Try again after all comments are saved.';
 
   const MIN_LINES_FOR_COMMIT_COLLAPSE = 30;
   const DEFAULT_NUM_FILES_SHOWN = 200;
 
-  // Maximum length for patch set descriptions.
-  const PATCH_DESC_MAX_LENGTH = 500;
-  const REVIEWERS_REGEX = /^R=/gm;
+  const REVIEWERS_REGEX = /^(R|CC)=/gm;
   const MIN_CHECK_INTERVAL_SECS = 0;
 
   // These are the same as the breakpoint set in CSS. Make sure both are changed
@@ -39,6 +36,18 @@
   const MINIMUM_RELATED_MAX_HEIGHT = 100;
 
   const SMALL_RELATED_HEIGHT = 400;
+
+  const REPLY_REFIT_DEBOUNCE_INTERVAL_MS = 500;
+
+  const TRAILING_WHITESPACE_REGEX = /[ \t]+$/gm;
+
+  const ReloadToastMessage = {
+    NEWER_REVISION: 'A newer patch set has been uploaded',
+    RESTORED: 'This change has been restored',
+    ABANDONED: 'This change has been abandoned',
+    MERGED: 'This change has been merged',
+    NEW_MESSAGE: 'There are new messages on this change',
+  };
 
   Polymer({
     is: 'gr-change-view',
@@ -69,10 +78,12 @@
         type: Object,
         observer: '_paramsChanged',
       },
+      /** @type {?} */
       viewState: {
         type: Object,
         notify: true,
         value() { return {}; },
+        observer: '_viewStateChanged',
       },
       backPage: String,
       hasParent: Boolean,
@@ -80,6 +91,7 @@
         type: Object,
         value() { return document.body; },
       },
+      /** @type {?} */
       _serverConfig: {
         type: Object,
         observer: '_startUpdateCheckTimer',
@@ -87,21 +99,26 @@
       _diffPrefs: Object,
       _numFilesShown: {
         type: Number,
+        value: DEFAULT_NUM_FILES_SHOWN,
         observer: '_numFilesShownChanged',
       },
       _account: {
         type: Object,
         value: {},
       },
+      /** @type {?} */
+      _changeComments: Object,
       _canStartReview: {
         type: Boolean,
         computed: '_computeCanStartReview(_loggedIn, _change, _account)',
       },
       _comments: Object,
+      /** @type {?} */
       _change: {
         type: Object,
         observer: '_changeChanged',
       },
+      /** @type {?} */
       _commitInfo: Object,
       _files: Object,
       _changeNum: String,
@@ -118,6 +135,8 @@
         computed: '_computeHideEditCommitMessage(_loggedIn, ' +
             '_editingCommitMessage, _change)',
       },
+      _diffAgainst: String,
+      /** @type {?string} */
       _latestCommitMessage: {
         type: String,
         value: '',
@@ -128,14 +147,13 @@
         computed:
           '_computeChangeIdCommitMessageError(_latestCommitMessage, _change)',
       },
+        /** @type {?} */
       _patchRange: {
         type: Object,
-        observer: '_updateSelected',
       },
-      _relatedChangesLoading: {
-        type: Boolean,
-        value: true,
-      },
+      _filesExpanded: String,
+      _basePatchNum: String,
+      _selectedRevision: Object,
       _currentRevisionActions: Object,
       _allPatchSets: {
         type: Array,
@@ -146,6 +164,12 @@
         value: false,
       },
       _loading: Boolean,
+      /** @type {?} */
+      _missingLabels: {
+        type: Array,
+        computed: '_computeMissingLabels(_change.labels)',
+      },
+      /** @type {?} */
       _projectConfig: Object,
       _rebaseOnCurrent: Boolean,
       _replyButtonLabel: {
@@ -154,13 +178,10 @@
         computed: '_computeReplyButtonLabel(_diffDrafts.*, _canStartReview)',
       },
       _selectedPatchSet: String,
+      _shownFileCount: Number,
       _initialLoadComplete: {
         type: Boolean,
         value: false,
-      },
-      _descriptionReadOnly: {
-        type: Boolean,
-        computed: '_computeDescriptionReadOnly(_loggedIn, _change, _account)',
       },
       _replyDisabled: {
         type: Boolean,
@@ -169,7 +190,12 @@
       },
       _changeStatus: {
         type: String,
-        computed: '_computeChangeStatus(_change, _patchRange.patchNum)',
+        computed: 'changeStatusString(_change)',
+      },
+      _changeStatuses: {
+        type: String,
+        computed: '_computeChangeStatusChips(_change, _missingLabels, ' +
+            '_mergeable)',
       },
       _commitCollapsed: {
         type: Boolean,
@@ -179,7 +205,24 @@
         type: Boolean,
         value: true,
       },
+      /** @type {?number} */
       _updateCheckTimerHandle: Number,
+      _editMode: {
+        type: Boolean,
+        computed: '_computeEditMode(_patchRange.*, params.*)',
+      },
+      _showRelatedToggle: {
+        type: Boolean,
+        value: false,
+        observer: '_updateToggleContainerClass',
+      },
+      _parentIsCurrent: Boolean,
+
+      /** @type {?} */
+      _mergeable: {
+        type: Boolean,
+        value: undefined,
+      },
     },
 
     behaviors: [
@@ -190,10 +233,18 @@
 
     listeners: {
       'topic-changed': '_handleTopicChanged',
+      // When an overlay is opened in a mobile viewport, the overlay has a full
+      // screen view. When it has a full screen view, we do not want the
+      // background to be scrollable. This will eliminate background scroll by
+      // hiding most of the contents on the screen upon opening, and showing
+      // again upon closing.
+      'fullscreen-overlay-opened': '_handleHideBackgroundContent',
+      'fullscreen-overlay-closed': '_handleShowBackgroundContent',
     },
     observers: [
       '_labelsChanged(_change.labels.*)',
       '_paramsAndChangeChanged(params, _change)',
+      '_patchNumChanged(_patchRange.patchNum)',
     ],
 
     keyBindings: {
@@ -219,12 +270,11 @@
             this._account = acct;
           });
         }
+        this._setDiffViewMode();
       });
 
-      this._numFilesShown = this.viewState.numFilesShown ?
-          this.viewState.numFilesShown : DEFAULT_NUM_FILES_SHOWN;
-
       this.addEventListener('comment-save', this._handleCommentSave.bind(this));
+      this.addEventListener('comment-refresh', this._reloadDrafts.bind(this));
       this.addEventListener('comment-discard',
           this._handleCommentDiscard.bind(this));
       this.addEventListener('editable-content-save',
@@ -244,8 +294,21 @@
       }
     },
 
-    _computePrefsButtonHidden(prefs, loggedIn) {
-      return !loggedIn || !prefs;
+    /**
+     * @param {boolean=} opt_reset
+     */
+    _setDiffViewMode(opt_reset) {
+      if (!opt_reset && this.viewState.diffViewMode) { return; }
+
+      return this.$.restAPI.getPreferences().then( prefs => {
+        if (!this.viewState.diffMode) {
+          this.set('viewState.diffMode', prefs.default_diff_view);
+        }
+      }).then(() => {
+        if (!this.viewState.diffMode) {
+          this.set('viewState.diffMode', 'SIDE_BY_SIDE');
+        }
+      });
     },
 
     _handleEditCommitMessage(e) {
@@ -254,7 +317,8 @@
     },
 
     _handleCommitMessageSave(e) {
-      const message = e.detail.content;
+      // Trim trailing whitespace from each line.
+      const message = e.detail.content.replace(TRAILING_WHITESPACE_REGEX, '');
 
       this.$.jsAPI.handleCommitMessage(this._change, message);
 
@@ -281,17 +345,40 @@
       this._editingCommitMessage = false;
     },
 
+    _computeMissingLabels(labels) {
+      const missingLabels = [];
+      for (const label in labels) {
+        if (!labels.hasOwnProperty(label)) { continue; }
+        const obj = labels[label];
+        if (!obj.optional && !obj.approved) {
+          missingLabels.push(label);
+        }
+      }
+      return missingLabels;
+    },
+
+    _readyToSubmit(missingLabels) {
+      return missingLabels.length === 0;
+    },
+
+    _computeChangeStatusChips(change, missingLabels, mergeable) {
+      // Show no chips until mergeability is loaded.
+      if (mergeable === null || mergeable === undefined) { return []; }
+
+      const options = {
+        readyToSubmit: this._readyToSubmit(missingLabels),
+        includeDerived: true,
+        mergeable: !!mergeable,
+      };
+      return this.changeStatuses(change, options);
+    },
+
     _computeHideEditCommitMessage(loggedIn, editing, change) {
       if (!loggedIn || editing || change.status === this.ChangeStatus.MERGED) {
         return true;
       }
 
       return false;
-    },
-
-    _handlePrefsTap(e) {
-      e.preventDefault();
-      this.$.fileList.openDiffPrefs();
     },
 
     _handleCommentSave(e) {
@@ -360,17 +447,16 @@
       this._diffDrafts = diffDrafts;
     },
 
-    _handlePatchChange(e) {
-      this._changePatchNum(parseInt(e.target.value, 10), true);
-    },
-
     _handleReplyTap(e) {
       e.preventDefault();
-      this._openReplyDialog();
+      this._openReplyDialog(this.$.replyDialog.FocusTarget.ANY);
     },
 
-    _handleDownloadTap(e) {
-      e.preventDefault();
+    _handleOpenDiffPrefs() {
+      this.$.fileList.openDiffPrefs();
+    },
+
+    _handleOpenDownloadDialog() {
       this.$.downloadOverlay.open().then(() => {
         this.$.downloadOverlay
             .setFocusStops(this.$.downloadDialog.getFocusStops());
@@ -386,20 +472,16 @@
       const msg = e.detail.message.message;
       const quoteStr = msg.split('\n').map(
           line => { return '> ' + line; }).join('\n') + '\n\n';
-
-      if (quoteStr !== this.$.replyDialog.quote) {
-        this.$.replyDialog.draft = quoteStr;
-      }
       this.$.replyDialog.quote = quoteStr;
-      this._openReplyDialog();
+      this._openReplyDialog(this.$.replyDialog.FocusTarget.BODY);
     },
 
-    _handleReplyOverlayOpen(e) {
-      // This is needed so that focus is not set on the reply overlay
-      // when the suggestion overaly from gr-autogrow-textarea opens.
-      if (e.target === this.$.replyOverlay) {
-        this.$.replyDialog.focus();
-      }
+    _handleHideBackgroundContent() {
+      this.$.mainContent.classList.add('overlayOpen');
+    },
+
+    _handleShowBackgroundContent() {
+      this.$.mainContent.classList.remove('overlayOpen');
     },
 
     _handleReplySent(e) {
@@ -412,7 +494,10 @@
     },
 
     _handleReplyAutogrow(e) {
-      this.$.replyOverlay.refit();
+      // If the textarea resizes, we need to re-fit the overlay.
+      this.debounce('reply-overlay-refit', () => {
+        this.$.replyOverlay.refit();
+      }, REPLY_REFIT_DEBOUNCE_INTERVAL_MS);
     },
 
     _handleShowReplyDialog(e) {
@@ -429,8 +514,20 @@
       }, 150);
     },
 
+    _setShownFiles(e) {
+      this._shownFileCount = e.detail.length;
+    },
+
+    _expandAllDiffs() {
+      this.$.fileList.expandAllDiffs();
+    },
+
+    _collapseAllDiffs() {
+      this.$.fileList.collapseAllDiffs();
+    },
+
     _paramsChanged(value) {
-      if (value.view !== this.tagName.toLowerCase()) {
+      if (value.view !== Gerrit.Nav.View.CHANGE) {
         this._initialLoadComplete = false;
         return;
       }
@@ -449,22 +546,20 @@
         basePatchNum: value.basePatchNum || 'PARENT',
       };
 
+      this.$.fileList.collapseAllDiffs();
+      this._patchRange = patchRange;
+
       if (this._initialLoadComplete && patchChanged) {
         if (patchRange.patchNum == null) {
           patchRange.patchNum = this.computeLatestPatchNum(this._allPatchSets);
         }
-        this._patchRange = patchRange;
         this._reloadPatchNumDependentResources().then(() => {
-          this.$.jsAPI.handleEvent(this.$.jsAPI.EventType.SHOW_CHANGE, {
-            change: this._change,
-            patchNum: patchRange.patchNum,
-          });
+          this._sendShowChangeEvent();
         });
         return;
       }
 
       this._changeNum = value.changeNum;
-      this._patchRange = patchRange;
       this.$.relatedChanges.clear();
 
       this._reload().then(() => {
@@ -472,33 +567,30 @@
       });
     },
 
-    _performPostLoadTasks() {
-      // Allow the message list and related changes to render before scrolling.
-      // Related changes are loaded here (after everything else) because they
-      // take the longest and are secondary information. Because the element may
-      // alter the total height of the page, the call to potentially scroll to
-      // a linked message is performed after related changes is fully loaded.
-      this.$.relatedChanges.reload().then(() => {
-        this.async(() => {
-          if (this.viewState.scrollTop) {
-            document.documentElement.scrollTop =
-                document.body.scrollTop = this.viewState.scrollTop;
-          } else {
-            this._maybeScrollToMessage(window.location.hash);
-          }
-        }, 1);
-      });
-
-      this._maybeShowReplyDialog();
-
-      this._maybeShowRevertDialog();
-
+    _sendShowChangeEvent() {
       this.$.jsAPI.handleEvent(this.$.jsAPI.EventType.SHOW_CHANGE, {
         change: this._change,
         patchNum: this._patchRange.patchNum,
+        info: {mergeable: this._mergeable},
       });
+    },
 
-      this._initialLoadComplete = true;
+    _performPostLoadTasks() {
+      this.$.relatedChanges.reload();
+      this._maybeShowReplyDialog();
+      this._maybeShowRevertDialog();
+
+      this._sendShowChangeEvent();
+
+      this.async(() => {
+        if (this.viewState.scrollTop) {
+          document.documentElement.scrollTop =
+              document.body.scrollTop = this.viewState.scrollTop;
+        } else {
+          this._maybeScrollToMessage(window.location.hash);
+        }
+        this._initialLoadComplete = true;
+      });
     },
 
     _paramsAndChangeChanged(value) {
@@ -510,6 +602,11 @@
           patchRangeState.patchNum !== this._patchRange.patchNum) {
         this._resetFileListViewState();
       }
+    },
+
+    _viewStateChanged(viewState) {
+      this._numFilesShown = viewState.numFilesShown ?
+          viewState.numFilesShown : DEFAULT_NUM_FILES_SHOWN;
     },
 
     _numFilesShownChanged(numFilesShown) {
@@ -560,7 +657,7 @@
         if (!loggedIn) { return; }
 
         if (this.viewState.showReplyDialog) {
-          this._openReplyDialog();
+          this._openReplyDialog(this.$.replyDialog.FocusTarget.ANY);
           // TODO(kaspern@): Find a better signal for when to call center.
           this.async(() => { this.$.replyOverlay.center(); }, 100);
           this.async(() => { this.$.replyOverlay.center(); }, 1000);
@@ -576,7 +673,7 @@
           this.viewState.changeNum !== this._changeNum) {
         // Reset the diff mode to null when navigating from one change to
         // another, so that the user's preference is restored.
-        this.set('viewState.diffMode', null);
+        this._setDiffViewMode(true);
         this.set('_numFilesShown', DEFAULT_NUM_FILES_SHOWN);
       }
       this.set('viewState.changeNum', this._changeNum);
@@ -591,56 +688,16 @@
           this._patchRange.patchNum ||
               this.computeLatestPatchNum(this._allPatchSets));
 
-      this._updateSelected();
+      // Reset the related changes toggle in the event it was previously
+      // displayed on an earlier change.
+      this._showRelatedToggle = false;
 
       const title = change.subject + ' (' + change.change_id.substr(0, 9) + ')';
       this.fire('title-change', {title});
     },
 
-    /**
-     * Change active patch to the provided patch num.
-     * @param {number} patchNum the patchn number to be viewed.
-     * @param {boolean} opt_forceParams When set to true, the resulting URL will
-     *     always include the patch range, even if the requested patchNum is
-     *     known to be the latest.
-     */
-    _changePatchNum(patchNum, opt_forceParams) {
-      if (!opt_forceParams) {
-        let currentPatchNum;
-        if (this._change.current_revision) {
-          currentPatchNum =
-              this._change.revisions[this._change.current_revision]._number;
-        } else {
-          currentPatchNum = this.computeLatestPatchNum(this._allPatchSets);
-        }
-        if (patchNum === currentPatchNum &&
-            this._patchRange.basePatchNum === 'PARENT') {
-          page.show(this.changePath(this._changeNum));
-          return;
-        }
-      }
-      const patchExpr = this._patchRange.basePatchNum === 'PARENT' ? patchNum :
-          this._patchRange.basePatchNum + '..' + patchNum;
-      page.show(this.changePath(this._changeNum) + '/' + patchExpr);
-    },
-
     _computeChangeUrl(change) {
       return Gerrit.Nav.getUrlForChange(change);
-    },
-
-    _computeChangeStatus(change, patchNum) {
-      let statusString = this.changeStatusString(change);
-      if (change.status === this.ChangeStatus.NEW) {
-        const rev = this.getRevisionByPatchNum(change.revisions, patchNum);
-        if (rev && rev.draft === true) {
-          statusString = 'Draft';
-        }
-      }
-      return statusString;
-    },
-
-    _privateChanges(change) {
-      return change.is_private ? ' (Private)' : '';
     },
 
     _computeShowCommitInfo(changeStatus, current_revision) {
@@ -693,26 +750,6 @@
       return CHANGE_ID_ERROR.MISSING;
     },
 
-    _computePatchInfoClass(patchNum, allPatchSets) {
-      if (parseInt(patchNum, 10) ===
-          this.computeLatestPatchNum(allPatchSets)) {
-        return '';
-      }
-      return 'patchInfo--oldPatchSet';
-    },
-
-    /**
-     * Determines if a patch number should be disabled based on value of the
-     * basePatchNum from gr-file-list.
-     * @param {Number} patchNum Patch number available in dropdown
-     * @param {Number|String} basePatchNum Base patch number from file list
-     * @return {Boolean}
-     */
-    _computePatchSetDisabled(patchNum, basePatchNum) {
-      basePatchNum = basePatchNum === 'PARENT' ? 0 : basePatchNum;
-      return parseInt(patchNum, 10) <= parseInt(basePatchNum, 10);
-    },
-
     _computeLabelNames(labels) {
       return Object.keys(labels).sort();
     },
@@ -722,7 +759,7 @@
       const t = labels[labelName];
       if (!t) { return result; }
       const approvals = t.all || [];
-      for (label of approvals) {
+      for (const label of approvals) {
         if (label.value && label.value != labels[labelName].default_value) {
           let labelClassName;
           let labelValPrefix = '';
@@ -771,7 +808,7 @@
         }
 
         e.preventDefault();
-        this._openReplyDialog();
+        this._openReplyDialog(this.$.replyDialog.FocusTarget.ANY);
       });
     },
 
@@ -786,7 +823,7 @@
     _handleCapitalRKey(e) {
       if (this.shouldSuppressKeyboardShortcut(e)) { return; }
       e.preventDefault();
-      page.show('/c/' + this._change._number);
+      Gerrit.Nav.navigateToChange(this._change);
     },
 
     _handleSKey(e) {
@@ -798,7 +835,8 @@
     },
 
     _handleUKey(e) {
-      if (this.shouldSuppressKeyboardShortcut(e)) { return; }
+      if (this.shouldSuppressKeyboardShortcut(e) ||
+          this.modifierPressed(e)) { return; }
 
       e.preventDefault();
       this._determinePageBack();
@@ -831,7 +869,7 @@
     _determinePageBack() {
       // Default backPage to '/' if user came to change view page
       // via an email link, etc.
-      page.show(this.backPage || '/');
+      Gerrit.Nav.navigateToRelativeUrl(this.backPage || '/');
     },
 
     _handleLabelRemoved(splices, path) {
@@ -860,12 +898,10 @@
       });
     },
 
+    /**
+     * @param {string=} opt_section
+     */
     _openReplyDialog(opt_section) {
-      if (this.$.restAPI.hasPendingDiffDrafts()) {
-        this.dispatchEvent(new CustomEvent('show-alert',
-            {detail: {message: COMMENT_SAVE}, bubbles: true}));
-        return;
-      }
       this.$.replyOverlay.open().then(() => {
         this.$.replyOverlay.setFocusStops(this.$.replyDialog.getFocusStops());
         this.$.replyDialog.open(opt_section);
@@ -879,20 +915,13 @@
         // If the change was rebased, we need to reload the page with the
         // latest patch.
         if (e.detail.action === 'rebase') {
-          page.show(this.changePath(this._changeNum));
+          Gerrit.Nav.navigateToChange(this._change);
         }
       });
     },
 
     _handleGetChangeDetailError(response) {
       this.fire('page-error', {response});
-    },
-
-    _getDiffDrafts() {
-      return this.$.restAPI.getDiffDrafts(this._changeNum).then(
-          drafts => {
-            return this._diffDrafts = drafts;
-          });
     },
 
     _getLoggedIn() {
@@ -914,7 +943,10 @@
       if (revisionActions && revisionActions.rebase) {
         revisionActions.rebase.rebaseOnCurrent =
             !!revisionActions.rebase.enabled;
+        this._parentIsCurrent = !revisionActions.rebase.enabled;
         revisionActions.rebase.enabled = true;
+      } else {
+        this._parentIsCurrent = true;
       }
       return revisionActions;
     },
@@ -922,17 +954,51 @@
     _prepareCommitMsgForLinkify(msg) {
       // TODO(wyatta) switch linkify sequence, see issue 5526.
       // This is a zero-with space. It is added to prevent the linkify library
-      // from including R= as part of the email address.
-      return msg.replace(REVIEWERS_REGEX, 'R=\u200B');
+      // from including R= or CC= as part of the email address.
+      return msg.replace(REVIEWERS_REGEX, '$1=\u200B');
+    },
+
+    /**
+     * Utility function to make the necessary modifications to a change in the
+     * case an edit exists.
+     *
+     * @param {!Object} change
+     * @param {?Object} edit
+     */
+    _processEdit(change, edit) {
+      if (!edit) { return; }
+      change.revisions[edit.commit.commit] = {
+        _number: this.EDIT_NAME,
+        basePatchNum: edit.base_patch_set_number,
+        commit: edit.commit,
+        fetch: edit.fetch,
+      };
+      // If the edit is based on the most recent patchset, load it by
+      // default, unless another patch set to load was specified in the URL.
+      if (!this._patchRange.patchNum &&
+          change.current_revision === edit.base_revision) {
+        change.current_revision = edit.commit.commit;
+        this._patchRange.patchNum = this.EDIT_NAME;
+        // Because edits are fibbed as revisions and added to the revisions
+        // array, and revision actions are always derived from the 'latest'
+        // patch set, we must copy over actions from the patch set base.
+        // Context: Issue 7243
+        change.revisions[edit.commit.commit].actions =
+            change.revisions[edit.base_revision].actions;
+      }
     },
 
     _getChangeDetail() {
-      return this.$.restAPI.getChangeDetail(this._changeNum,
-          this._handleGetChangeDetailError.bind(this)).then(
-          change => {
+      const detailCompletes = this.$.restAPI.getChangeDetail(
+          this._changeNum, this._handleGetChangeDetailError.bind(this));
+      const editCompletes = this._getEdit();
+
+      return Promise.all([detailCompletes, editCompletes])
+          .then(([change, edit]) => {
             if (!change) {
               return '';
             }
+            this._processEdit(change, edit);
             // Issue 4190: Coalesce missing topics to null.
             if (!change.topic) { change.topic = null; }
             if (!change.reviewer_updates) {
@@ -947,34 +1013,40 @@
               this._latestCommitMessage = null;
             }
             const lineHeight = getComputedStyle(this).lineHeight;
-            this._lineHeight = lineHeight.slice(0, lineHeight.length - 2);
+
+            // Slice returns a number as a string, convert to an int.
+            this._lineHeight =
+                parseInt(lineHeight.slice(0, lineHeight.length - 2), 10);
 
             this._change = change;
             if (!this._patchRange || !this._patchRange.patchNum ||
-                    this._patchRange.patchNum === currentRevision._number) {
-                  // CommitInfo.commit is optional, and may need patching.
+                this.patchNumEquals(this._patchRange.patchNum,
+                    currentRevision._number)) {
+              // CommitInfo.commit is optional, and may need patching.
               if (!currentRevision.commit.commit) {
                 currentRevision.commit.commit = latestRevisionSha;
               }
               this._commitInfo = currentRevision.commit;
               this._currentRevisionActions =
                       this._updateRebaseAction(currentRevision.actions);
-                  // TODO: Fetch and process files.
+              this._selectedRevision = currentRevision;
+              // TODO: Fetch and process files.
+            } else {
+              this._selectedRevision =
+                Object.values(this._change.revisions).find(
+                    revision => revision._number ===
+                      parseInt(this._patchRange.patchNum, 10));
             }
           });
     },
 
-    _getComments() {
-      return this.$.restAPI.getDiffComments(this._changeNum).then(
-          comments => {
-            this._comments = comments;
-          });
+    _getEdit() {
+      return this.$.restAPI.getChangeEdit(this._changeNum, true);
     },
 
     _getLatestCommitMessage() {
       return this.$.restAPI.getChangeCommitInfo(this._changeNum,
-          this.computeLatestPatchNum(this._allPatchSets)).then(
-          commitInfo => {
+          this.computeLatestPatchNum(this._allPatchSets)).then(commitInfo => {
             this._latestCommitMessage =
                     this._prepareCommitMsgForLinkify(commitInfo.message);
           });
@@ -1007,37 +1079,56 @@
           });
     },
 
-    _reloadDiffDrafts() {
-      this._diffDrafts = {};
-      this._getDiffDrafts().then(() => {
-        if (this.$.replyOverlay.opened) {
-          this.async(() => { this.$.replyOverlay.center(); }, 1);
-        }
+    _reloadDraftsWithCallback(e) {
+      return this._reloadDrafts().then(() => {
+        return e.detail.resolve();
       });
+    },
+
+    /**
+     * Fetches a new changeComment object, and data for all types of comments
+     * (comments, robot comments, draft comments) is requested.
+     */
+    _reloadComments() {
+      return this.$.commentAPI.loadAll(this._changeNum)
+          .then(comments => {
+            this._changeComments = comments;
+            this._diffDrafts = Object.assign({}, this._changeComments.drafts);
+          });
+    },
+
+    /**
+     * Fetches a new changeComment object, but only updated data for drafts is
+     * requested.
+     */
+    _reloadDrafts() {
+      return this.$.commentAPI.reloadDrafts(this._changeNum)
+          .then(comments => {
+            this._changeComments = comments;
+            this._diffDrafts = Object.assign({}, this._changeComments.drafts);
+          });
     },
 
     _reload() {
       this._loading = true;
       this._relatedChangesCollapsed = true;
 
-      this._getLoggedIn().then(loggedIn => {
-        if (!loggedIn) { return; }
-
-        this._reloadDiffDrafts();
-      });
-
       const detailCompletes = this._getChangeDetail().then(() => {
         this._loading = false;
         this._getProjectConfig();
       });
-      this._getComments();
+
+      this._reloadComments();
 
       if (this._patchRange.patchNum) {
         return Promise.all([
           this._reloadPatchNumDependentResources(),
           detailCompletes,
         ]).then(() => {
-          return this.$.actions.reload();
+          return Promise.all([
+            this._getMergeability(),
+            this.$.actions.reload(),
+          ]);
         });
       } else {
         // The patch number is reliant on the change detail request.
@@ -1046,6 +1137,7 @@
           if (!this._latestCommitMessage) {
             this._getLatestCommitMessage();
           }
+          return this._getMergeability();
         });
       }
     },
@@ -1061,78 +1153,25 @@
       ]);
     },
 
-    _updateSelected() {
-      this._selectedPatchSet = this._patchRange.patchNum;
-    },
-
-    _computePatchSetDescription(change, patchNum) {
-      const rev = this.getRevisionByPatchNum(change.revisions, patchNum);
-      return (rev && rev.description) ?
-          rev.description.substring(0, PATCH_DESC_MAX_LENGTH) : '';
-    },
-
-    _computePatchSetCommentsString(allComments, patchNum) {
-      let numComments = 0;
-      let numUnresolved = 0;
-      for (const file in allComments) {
-        if (allComments.hasOwnProperty(file)) {
-          numComments += this.$.fileList.getCommentsForPath(
-              allComments, patchNum, file).length;
-          numUnresolved += this.$.fileList.computeUnresolvedNum(
-              allComments, {}, patchNum, file);
-        }
+    _getMergeability() {
+      // If the change is closed, it is not mergeable. Note: already merged
+      // changes are obviously not mergeable, but the mergeability API will not
+      // answer for abandoned changes.
+      if (this._change.status === this.ChangeStatus.MERGED ||
+          this._change.status === this.ChangeStatus.ABANDONED) {
+        this._mergeable = false;
+        return Promise.resolve();
       }
-      let commentsStr = '';
-      if (numComments > 0) {
-        commentsStr = '(' + numComments + ' comments';
-        if (numUnresolved > 0) {
-          commentsStr += ', ' + numUnresolved + ' unresolved';
-        }
-        commentsStr += ')';
-      }
-      return commentsStr;
-    },
 
-    _computeDescriptionPlaceholder(readOnly) {
-      return (readOnly ? 'No' : 'Add a') + ' patch set description';
-    },
-
-    _handleDescriptionChanged(e) {
-      const desc = e.detail.trim();
-      const rev = this.getRevisionByPatchNum(this._change.revisions,
-          this._selectedPatchSet);
-      const sha = this._getPatchsetHash(this._change.revisions, rev);
-      this.$.restAPI.setDescription(this._changeNum,
-          this._selectedPatchSet, desc)
-          .then(res => {
-            if (res.ok) {
-              this.set(['_change', 'revisions', sha, 'description'], desc);
-            }
-          });
-    },
-
-
-    /**
-     * @param {Object} revisions The revisions object keyed by revision hashes
-     * @param {Object} patchSet A revision already fetched from {revisions}
-     * @return {string} the SHA hash corresponding to the revision.
-     */
-    _getPatchsetHash(revisions, patchSet) {
-      for (const rev in revisions) {
-        if (revisions.hasOwnProperty(rev) &&
-            revisions[rev] === patchSet) {
-          return rev;
-        }
-      }
+      this._mergeable = null;
+      return this.$.restAPI.getMergeable(this._changeNum).then(m => {
+        this._mergeable = m.mergeable;
+      });
     },
 
     _computeCanStartReview(loggedIn, change, account) {
       return !!(loggedIn && change.work_in_progress &&
           change.owner._account_id === account._account_id);
-    },
-
-    _computeDescriptionReadOnly(loggedIn, change, account) {
-      return !(loggedIn && (account._account_id === change.owner._account_id));
     },
 
     _computeReplyDisabled() { return false; },
@@ -1146,10 +1185,7 @@
       return collapsed ? 'collapsed' : '';
     },
 
-    _computeRelatedChangesClass(collapsed, loading) {
-      if (!loading && !this.customStyle['--relation-chain-max-height']) {
-        this._updateRelatedChangeMaxHeight();
-      }
+    _computeRelatedChangesClass(collapsed) {
       return collapsed ? 'collapsed' : '';
     },
 
@@ -1232,9 +1268,8 @@
               EXTRA_HEIGHT;
         }
       }
-      if (this.$.relatedChanges.hidden) {
-        this.customStyle['--commit-message-max-width'] = 'none';
-      }
+      const stylesToUpdate = {};
+
       // Get the line height of related changes, and convert it to the nearest
       // integer.
       const lineHeight = this._getLineHeight(this.$.relatedChanges);
@@ -1243,24 +1278,43 @@
       const remainder = newHeight % lineHeight;
       newHeight = newHeight - remainder;
 
-      this.customStyle['--relation-chain-max-height'] = newHeight + 'px';
+      stylesToUpdate['--relation-chain-max-height'] = newHeight + 'px';
 
       // Update the max-height of the relation chain to this new height.
       if (hasCommitToggle) {
-        this.customStyle['--related-change-btn-top-padding'] =
-          remainder + 'px';
+        stylesToUpdate['--related-change-btn-top-padding'] = remainder + 'px';
       }
-      this.updateStyles();
+
+      this.updateStyles(stylesToUpdate);
     },
 
-    _computeRelatedChangesToggleClass() {
+    _computeShowRelatedToggle() {
+      // Make sure the max height has been applied, since there is now content
+      // to populate.
+      // TODO update to polymer 2.x syntax
+      if (!this.getComputedStyleValue('--relation-chain-max-height')) {
+        this._updateRelatedChangeMaxHeight();
+      }
       // Prevents showMore from showing when click on related change, since the
       // line height would be positive, but related changes height is 0.
-      if (!this._getScrollHeight(this.$.relatedChanges)) { return ''; }
+      if (!this._getScrollHeight(this.$.relatedChanges)) {
+        return this._showRelatedToggle = false;
+      }
 
-      return this._getScrollHeight(this.$.relatedChanges) >
+      if (this._getScrollHeight(this.$.relatedChanges) >
           (this._getOffsetHeight(this.$.relatedChanges) +
-          this._getLineHeight(this.$.relatedChanges)) ? 'showToggle' : '';
+          this._getLineHeight(this.$.relatedChanges))) {
+        return this._showRelatedToggle = true;
+      }
+      this._showRelatedToggle = false;
+    },
+
+    _updateToggleContainerClass(showRelatedToggle) {
+      if (showRelatedToggle) {
+        this.$.relatedChangesToggle.classList.add('showToggle');
+      } else {
+        this.$.relatedChangesToggle.classList.remove('showToggle');
+      }
     },
 
     _startUpdateCheckTimer() {
@@ -1272,29 +1326,44 @@
       }
 
       this._updateCheckTimerHandle = this.async(() => {
-        this.fetchIsLatestKnown(this._change, this.$.restAPI)
-            .then(latest => {
-              if (latest) {
-                this._startUpdateCheckTimer();
-              } else {
-                this._cancelUpdateCheckTimer();
-                this.fire('show-alert', {
-                  message: 'A newer patch set has been uploaded.',
-                  // Persist this alert.
-                  dismissOnNavigation: true,
-                  action: 'Reload',
-                  callback: function() {
-                    // Load the current change without any patch range.
-                    Gerrit.Nav.navigateToChange(this._change);
-                  }.bind(this),
-                });
-              }
-            });
+        this.fetchChangeUpdates(this._change, this.$.restAPI).then(result => {
+          let toastMessage = null;
+          if (!result.isLatest) {
+            toastMessage = ReloadToastMessage.NEWER_REVISION;
+          } else if (result.newStatus === this.ChangeStatus.MERGED) {
+            toastMessage = ReloadToastMessage.MERGED;
+          } else if (result.newStatus === this.ChangeStatus.ABANDONED) {
+            toastMessage = ReloadToastMessage.ABANDONED;
+          } else if (result.newStatus === this.ChangeStatus.NEW) {
+            toastMessage = ReloadToastMessage.RESTORED;
+          } else if (result.newMessages) {
+            toastMessage = ReloadToastMessage.NEW_MESSAGE;
+          }
+
+          if (!toastMessage) {
+            this._startUpdateCheckTimer();
+            return;
+          }
+
+          this._cancelUpdateCheckTimer();
+          this.fire('show-alert', {
+            message: toastMessage,
+            // Persist this alert.
+            dismissOnNavigation: true,
+            action: 'Reload',
+            callback: function() {
+              // Load the current change without any patch range.
+              Gerrit.Nav.navigateToChange(this._change);
+            }.bind(this),
+          });
+        });
       }, this._serverConfig.change.update_delay * 1000);
     },
 
     _cancelUpdateCheckTimer() {
-      this.cancelAsync(this._updateCheckTimerHandle);
+      if (this._updateCheckTimerHandle) {
+        this.cancelAsync(this._updateCheckTimerHandle);
+      }
       this._updateCheckTimerHandle = null;
     },
 
@@ -1312,6 +1381,85 @@
 
     _computeHeaderClass(change) {
       return change.work_in_progress ? 'header wip' : 'header';
+    },
+
+    _computeEditMode(patchRangeRecord, paramsRecord) {
+      if (paramsRecord.base && paramsRecord.base.edit) { return true; }
+
+      const patchRange = patchRangeRecord.base || {};
+      return this.patchNumEquals(patchRange.patchNum, this.EDIT_NAME);
+    },
+
+    _handleFileActionTap(e) {
+      e.preventDefault();
+      const controls = this.$.fileListHeader.$.editControls;
+      const path = e.detail.path;
+      switch (e.detail.action) {
+        case GrEditConstants.Actions.DELETE.id:
+          controls.openDeleteDialog(path);
+          break;
+        case GrEditConstants.Actions.EDIT.id:
+          Gerrit.Nav.navigateToRelativeUrl(
+              Gerrit.Nav.getEditUrlForDiff(this._change, path,
+                  this._patchRange.patchNum));
+          break;
+        case GrEditConstants.Actions.RENAME.id:
+          controls.openRenameDialog(path);
+          break;
+        case GrEditConstants.Actions.RESTORE.id:
+          controls.openRestoreDialog(path);
+          break;
+      }
+    },
+
+    _computeCommitMessageKey(number, revision) {
+      return `c${number}_rev${revision}`;
+    },
+
+    _patchNumChanged(patchNumStr) {
+      if (!this._selectedRevision) {
+        return;
+      }
+      const patchNum = parseInt(patchNumStr, 10);
+      if (patchNum === this._selectedRevision._number) {
+        return;
+      }
+      this._selectedRevision = Object.values(this._change.revisions).find(
+          revision => revision._number === patchNum);
+    },
+
+    /**
+     * If an edit exists already, load it. Otherwise, toggle edit mode via the
+     * navigation API.
+     */
+    _handleEditTap() {
+      const editInfo = Object.values(this._change.revisions).find(info =>
+          info._number === this.EDIT_NAME);
+
+      if (editInfo) {
+        Gerrit.Nav.navigateToChange(this._change, this.EDIT_NAME);
+        return;
+      }
+
+      // Avoid putting patch set in the URL unless a non-latest patch set is
+      // selected.
+      let patchNum;
+      if (!this.patchNumEquals(this._patchRange.patchNum,
+          this.computeLatestPatchNum(this._allPatchSets))) {
+        patchNum = this._patchRange.patchNum;
+      }
+      Gerrit.Nav.navigateToChange(this._change, patchNum, null, true);
+    },
+
+    /**
+     * Navigate to the latest non-edit patch set.
+     */
+    _handleDoneEditTap() {
+      let patchNum = this._patchRange.patchNum;
+      if (this.patchNumEquals(patchNum, this.EDIT_NAME)) {
+        patchNum = this.computeLatestPatchNum(this._allPatchSets);
+      }
+      Gerrit.Nav.navigateToChange(this._change, patchNum);
     },
   });
 })();

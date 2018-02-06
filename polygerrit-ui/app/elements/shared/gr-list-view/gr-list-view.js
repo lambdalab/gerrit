@@ -20,9 +20,10 @@
     is: 'gr-list-view',
 
     properties: {
+      createNew: Boolean,
       items: Array,
       itemsPerPage: Number,
-      _filter: {
+      filter: {
         type: String,
         observer: '_filterChanged',
       },
@@ -36,16 +37,19 @@
       Gerrit.URLEncodingBehavior,
     ],
 
-    listeners: {
-      'next-page': '_handleNextPage',
-      'previous-page': '_handlePreviousPage',
-    },
-
     detached() {
       this.cancelDebouncer('reload');
     },
 
-    _filterChanged(filter) {
+    _filterChanged(newFilter, oldFilter) {
+      if (!newFilter && !oldFilter) {
+        return;
+      }
+
+      this._debounceReload(newFilter);
+    },
+
+    _debounceReload(filter) {
       this.debounce('reload', () => {
         if (filter) {
           return page.show(`${this.path}/q/filter:` +
@@ -55,13 +59,17 @@
       }, REQUEST_DEBOUNCE_INTERVAL_MS);
     },
 
-    _computeNavLink(offset, direction, projectsPerPage, filter) {
+    _createNewItem() {
+      this.fire('create-clicked');
+    },
+
+    _computeNavLink(offset, direction, itemsPerPage, filter, path) {
       // Offset could be a string when passed from the router.
       offset = +(offset || 0);
-      const newOffset = Math.max(0, offset + (projectsPerPage * direction));
-      let href = this.getBaseUrl() + this.path;
+      const newOffset = Math.max(0, offset + (itemsPerPage * direction));
+      let href = this.getBaseUrl() + path;
       if (filter) {
-        href += '/q/filter:' + filter;
+        href += '/q/filter:' + this.encodeURL(filter, false);
       }
       if (newOffset > 0) {
         href += ',' + newOffset;
@@ -69,16 +77,20 @@
       return href;
     },
 
+    _computeCreateClass(createNew) {
+      return createNew ? 'show' : '';
+    },
+
     _hidePrevArrow(offset) {
       return offset === 0;
     },
 
-    _hideNextArrow(loading, projects) {
+    _hideNextArrow(loading, items) {
       let lastPage = false;
-      if (projects.length < this.itemsPerPage + 1) {
+      if (items.length < this.itemsPerPage + 1) {
         lastPage = true;
       }
-      return loading || lastPage || !projects || !projects.length;
+      return loading || lastPage || !items || !items.length;
     },
   });
 })();

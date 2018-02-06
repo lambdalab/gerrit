@@ -22,7 +22,7 @@ limitations under the License.
 <script src="../../bower_components/web-component-tester/browser.js"></script>
 <link rel="import" href="../../test/common-test-setup.html"/>
 <script>
-  /** @type {String} */
+  /** @type {string} */
   window.CANONICAL_PATH = '/r';
 </script>
 
@@ -74,6 +74,150 @@ limitations under the License.
 
     test('changePath', () => {
       assert.deepEqual(element.changePath('1'), '/r/c/1');
+    });
+
+    test('Open status', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        revisions: {
+          rev1: {_number: 1},
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        labels: {},
+        mergeable: true,
+      };
+      let statuses = element.changeStatuses(change);
+      let statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, []);
+      assert.equal(statusString, '');
+
+      statuses = element.changeStatuses(change,
+          {readyToSubmit: false, includeDerived: true});
+      assert.deepEqual(statuses, ['Active']);
+
+      // With no missing labels
+      statuses = element.changeStatuses(change,
+          {readyToSubmit: true, includeDerived: true});
+      statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, ['Ready to submit']);
+
+      change.mergeable = false;
+      statuses = element.changeStatuses(change,
+          {readyToSubmit: true, includeDerived: true});
+      assert.deepEqual(statuses, ['Merge Conflict']);
+
+      delete change.mergeable;
+      statuses = element.changeStatuses(change,
+          {readyToSubmit: true, includeDerived: true, mergeable: true});
+      assert.deepEqual(statuses, ['Ready to submit']);
+
+      statuses = element.changeStatuses(change,
+          {readyToSubmit: true, includeDerived: true, mergeable: false});
+      assert.deepEqual(statuses, ['Merge Conflict']);
+    });
+
+    test('Merge conflict', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        revisions: {
+          rev1: {_number: 1},
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        labels: {},
+        mergeable: false,
+      };
+      const statuses = element.changeStatuses(change);
+      const statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, ['Merge Conflict']);
+      assert.equal(statusString, 'Merge Conflict');
+    });
+
+    test('mergeable prop undefined', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        revisions: {
+          rev1: {_number: 1},
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        labels: {},
+      };
+      const statuses = element.changeStatuses(change);
+      const statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, []);
+      assert.equal(statusString, '');
+    });
+
+    test('Merged status', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        revisions: {
+          rev1: {_number: 1},
+        },
+        current_revision: 'rev1',
+        status: 'MERGED',
+        labels: {},
+      };
+      const statuses = element.changeStatuses(change);
+      const statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, ['Merged']);
+      assert.equal(statusString, 'Merged');
+    });
+
+    test('Abandoned status', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        revisions: {
+          rev1: {_number: 1},
+        },
+        current_revision: 'rev1',
+        status: 'ABANDONED',
+        labels: {},
+      };
+      const statuses = element.changeStatuses(change);
+      const statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, ['Abandoned']);
+      assert.equal(statusString, 'Abandoned');
+    });
+
+    test('Open status with private and wip', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        revisions: {
+          rev1: {_number: 1},
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        is_private: true,
+        work_in_progress: true,
+        labels: {},
+        mergeable: true,
+      };
+      const statuses = element.changeStatuses(change);
+      const statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, ['WIP', 'Private']);
+      assert.equal(statusString, 'WIP, Private');
+    });
+
+    test('Merge conflict with private and wip', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        revisions: {
+          rev1: {_number: 1},
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        is_private: true,
+        work_in_progress: true,
+        labels: {},
+        mergeable: false,
+      };
+      const statuses = element.changeStatuses(change);
+      const statusString = element.changeStatusString(change);
+      assert.deepEqual(statuses, ['Merge Conflict', 'WIP', 'Private']);
+      assert.equal(statusString, 'Merge Conflict, WIP, Private');
     });
   });
 </script>

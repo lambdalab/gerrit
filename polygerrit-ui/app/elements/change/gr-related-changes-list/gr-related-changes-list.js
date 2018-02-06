@@ -17,11 +17,20 @@
   Polymer({
     is: 'gr-related-changes-list',
 
+    /**
+     * Fired when a new section is loaded so that the change view can determine
+     * a show more button is needed, sometimes before all the sections finish
+     * loading.
+     *
+     * @event new-section-loaded
+     */
+
     properties: {
       change: Object,
       hasParent: {
         type: Boolean,
         notify: true,
+        value: false,
       },
       patchNum: String,
       parentChange: Object,
@@ -34,11 +43,13 @@
         type: Boolean,
         notify: true,
       },
+      mergeable: Boolean,
       _connectedRevisions: {
         type: Array,
         computed: '_computeConnectedRevisions(change, patchNum, ' +
             '_relatedResponse.changes)',
       },
+      /** @type {?} */
       _relatedResponse: {
         type: Object,
         value() { return {changes: []}; },
@@ -62,7 +73,7 @@
     },
 
     behaviors: [
-      Gerrit.BaseUrlBehavior,
+      Gerrit.PatchSetBehavior,
       Gerrit.RESTClientBehavior,
     ],
 
@@ -74,6 +85,12 @@
     clear() {
       this.loading = true;
       this.hidden = true;
+
+      this._relatedResponse = {changes: []};
+      this._submittedTogether = [];
+      this._conflicts = [];
+      this._cherryPicks = [];
+      this._sameTopic = [];
     },
 
     reload() {
@@ -84,22 +101,27 @@
       const promises = [
         this._getRelatedChanges().then(response => {
           this._relatedResponse = response;
-
+          this._fireReloadEvent();
           this.hasParent = this._calculateHasParent(this.change.change_id,
               response.changes);
         }),
         this._getSubmittedTogether().then(response => {
           this._submittedTogether = response;
+          this._fireReloadEvent();
         }),
         this._getCherryPicks().then(response => {
           this._cherryPicks = response;
+          this._fireReloadEvent();
         }),
       ];
 
       // Get conflicts if change is open and is mergeable.
-      if (this.changeIsOpen(this.change.status) && this.change.mergeable) {
+      if (this.changeIsOpen(this.change.status) && this.mergeable) {
         promises.push(this._getConflicts().then(response => {
-          this._conflicts = response;
+          // Because the server doesn't always return a response and the
+          // template expects an array, always return an array.
+          this._conflicts = response ? response : [];
+          this._fireReloadEvent();
         }));
       }
 
@@ -119,13 +141,21 @@
       });
     },
 
+    _fireReloadEvent() {
+      // The listener on the change computes height of the related changes
+      // section, so they have to be rendered first, and inside a dom-repeat,
+      // that requires a flush.
+      Polymer.dom.flush();
+      this.dispatchEvent(new CustomEvent('new-section-loaded'));
+    },
+
     /**
      * Determines whether or not the given change has a parent change. If there
      * is a relation chain, and the change id is not the last item of the
      * relation chain, there is a parent.
-     * @param  {Number} currentChangeId
-     * @param  {Array} relatedChanges
-     * @return {Boolean}
+     * @param  {number} currentChangeId
+     * @param  {!Array} relatedChanges
+     * @return {boolean}
      */
     _calculateHasParent(currentChangeId, relatedChanges) {
       return relatedChanges.length > 0 &&
@@ -159,12 +189,14 @@
       return this.$.restAPI.getChangesWithSameTopic(this.change.topic);
     },
 
-    _computeChangeURL(changeNum, patchNum) {
-      let urlStr = this.getBaseUrl() + '/c/' + changeNum;
-      if (patchNum != null) {
-        urlStr += '/' + patchNum;
-      }
-      return urlStr;
+    /**
+     * @param {number} changeNum
+     * @param {string} project
+     * @param {number=} opt_patchNum
+     * @return {string}
+     */
+    _computeChangeURL(changeNum, project, opt_patchNum) {
+      return Gerrit.Nav.getUrlForChangeById(changeNum, project, opt_patchNum);
     },
 
     _computeChangeContainerClass(currentChange, relatedChange) {
@@ -176,9 +208,14 @@
     },
 
     _computeLinkClass(change) {
+      const statuses = [];
       if (change.status == this.ChangeStatus.ABANDONED) {
-        return 'strikethrough';
+        statuses.push('strikethrough');
       }
+      if (change.submittable) {
+        statuses.push('submittable');
+      }
+      return statuses.join(' ');
     },
 
     _computeChangeStatusClass(change) {
@@ -201,8 +238,6 @@
           return 'Merged';
         case this.ChangeStatus.ABANDONED:
           return 'Abandoned';
-        case this.ChangeStatus.DRAFT:
-          return 'Draft';
       }
       if (change._revision_number != change._current_revision_number) {
         return 'Not current';
@@ -241,7 +276,7 @@
       const connected = [];
       let changeRevision;
       for (const rev in change.revisions) {
-        if (change.revisions[rev]._number == patchNum) {
+        if (this.patchNumEquals(change.revisions[rev]._number, patchNum)) {
           changeRevision = rev;
         }
       }

@@ -18,6 +18,7 @@
     is: 'gr-account-link',
 
     properties: {
+      additionalText: String,
       account: Object,
       avatarImageSize: {
         type: Number,
@@ -31,11 +32,9 @@
 
     _computeOwnerLink(account) {
       if (!account) { return; }
-      return Gerrit.Nav.getUrlForOwner(account.email || account._account_id);
-    },
-
-    _computeShowEmail(account) {
-      return !!(account && !account.name);
+      return Gerrit.Nav.getUrlForOwner(
+          account.email || account.username || account.name ||
+          account._account_id);
     },
   });
 })();

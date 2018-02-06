@@ -14,20 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
+<link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../../behaviors/async-foreach-behavior/async-foreach-behavior.html">
+<link rel="import" href="../../../behaviors/dom-util-behavior/dom-util-behavior.html">
 <link rel="import" href="../../../behaviors/keyboard-shortcut-behavior/keyboard-shortcut-behavior.html">
 <link rel="import" href="../../../behaviors/gr-patch-set-behavior/gr-patch-set-behavior.html">
-<link rel="import" href="../../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../../styles/shared-styles.html">
 <link rel="import" href="../../core/gr-navigation/gr-navigation.html">
 <link rel="import" href="../../core/gr-reporting/gr-reporting.html">
 <link rel="import" href="../../diff/gr-diff/gr-diff.html">
 <link rel="import" href="../../diff/gr-diff-cursor/gr-diff-cursor.html">
+<link rel="import" href="../../edit/gr-edit-file-controls/gr-edit-file-controls.html">
 <link rel="import" href="../../shared/gr-button/gr-button.html">
 <link rel="import" href="../../shared/gr-cursor-manager/gr-cursor-manager.html">
+<link rel="import" href="../../shared/gr-icons/gr-icons.html">
 <link rel="import" href="../../shared/gr-linked-text/gr-linked-text.html">
 <link rel="import" href="../../shared/gr-rest-api-interface/gr-rest-api-interface.html">
 <link rel="import" href="../../shared/gr-select/gr-select.html">
+<link rel="import" href="../../shared/gr-count-string-formatter/gr-count-string-formatter.html">
 <link rel="import" href="../../shared/gr-tooltip-content/gr-tooltip-content.html">
-<link rel="import" href="../../../styles/shared-styles.html">
+<link rel="import" href="../gr-file-list-constants.html">
 
 <dom-module id="gr-file-list">
   <template>
@@ -36,24 +42,36 @@ limitations under the License.
         display: block;
       }
       .row {
-        border-top: 1px solid #eee;
+        align-items: center;
+        border-top: 1px solid #ddd;
         display: flex;
-        padding: .1em .25em;
+        min-height: 2.25em;
+        padding: .2em var(--default-horizontal-margin);
       }
-      header {
+      :host(.loading) .row {
+        opacity: .5;
+      };
+      :host(.editMode) .hideOnEdit {
+        display: none;
+      }
+      .showOnEdit {
+        display: none;
+      }
+      :host(.editMode) .showOnEdit {
+        display: initial;
+      }
+      .invisible {
+        visibility: hidden;
+      }
+      .controlRow {
+        align-items: center;
         display: flex;
-        font-weight: bold;
-        justify-content: space-between;
-        margin-bottom: .5em;
+        height: 2.25em;
+        justify-content: center;
       }
-      .rightControls {
-        display: flex;
-        flex-wrap: wrap;
-        font-weight: normal;
-        justify-content: flex-end;
-      }
-      .separator {
-        margin: 0 .25em;
+      .controlRow.invisible,
+      .show-hide.invisible {
+        display: none;
       }
       .reviewed,
       .status {
@@ -63,8 +81,18 @@ limitations under the License.
       .reviewed,
       .status {
         display: inline-block;
-        text-align: center;
+        text-align: left;
         width: 1.5em;
+      }
+      .file-row.expanded {
+        background-color: #fff;
+        border-bottom: 1px solid #ddd;
+        position: -webkit-sticky;
+        position: sticky;
+        top: 0;
+        /* Has to visible above the diff view, and by default has a lower
+         z-index. setting to 1 places it directly above. */
+        z-index: 1;
       }
       .file-row:hover {
         background-color: #f5fafd;
@@ -75,7 +103,6 @@ limitations under the License.
       .path {
         cursor: pointer;
         flex: 1;
-        padding-left: .35em;
         text-decoration: none;
         white-space: nowrap;
       }
@@ -95,41 +122,47 @@ limitations under the License.
         text-align: right;
       }
       .comments {
-        min-width: 10em;
+        padding-left: 2em;
       }
       .stats {
         min-width: 7em;
       }
-      .invisible {
-        visibility: hidden;
-      }
       .row:not(.header) .stats,
       .total-stats {
         font-family: var(--monospace-font-family);
+      }
+      .sizeBars {
+        margin-left: .5em;
+      }
+      .sizeBars.hide {
+        display: none;
+      }
+      .added,
+      .removed {
+        display: inline-block;
+        min-width: 3.5em;
       }
       .added {
         color: #388E3C;
       }
       .removed {
         color: #D32F2F;
+        text-align: left;
       }
       .drafts {
         color: #C62828;
-        font-weight: bold;
+        font-family: var(--font-family-bold);
       }
       .show-hide {
-        margin-left: .4em;
+        margin-left: .35em;
+        width: 1.9em;
       }
       .fileListButton {
         margin: .5em;
       }
       .totalChanges {
         justify-content: flex-end;
-        padding-right: 2.6em;
         text-align: right;
-      }
-      .expandInline {
-        padding-right: .25em;
       }
       .warning {
         color: #666;
@@ -138,21 +171,15 @@ limitations under the License.
         display: none;
       }
       label.show-hide {
-        color: #00f;
+        color: var(--color-link);
         cursor: pointer;
         display: block;
-        font-size: .8em;
+        font-size: var(--font-size-small);
         min-width: 2em;
-        margin-top: .1em;
       }
       gr-diff {
-        box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
         display: block;
-        margin: .25em 0 1em;
         overflow-x: auto;
-      }
-      .patchSetSelect {
-        max-width: 8em;
       }
       .truncatedFileName {
         display: none;
@@ -164,6 +191,40 @@ limitations under the License.
       .mobile {
         display: none;
       }
+      .reviewed {
+        margin-left: 2em;
+        width: 15em;
+      }
+      .reviewed label {
+        color: #2A66D9;
+        opacity: 0;
+        justify-content: flex-end;
+        width: 100%;
+      }
+      .reviewed label:hover {
+        cursor: pointer;
+        opacity: 100;
+      }
+      .row:hover .reviewed label,
+      .row:focus .reviewed label {
+        opacity: 100;
+      }
+      .reviewed input {
+        display: none;
+      }
+      .reviewedLabel {
+        color: rgba(0, 0, 0, .54);
+        margin-right: 1em;
+        opacity: 0;
+      }
+      .reviewedLabel.isReviewed {
+        display: initial;
+        opacity: 100;
+      }
+      .editFileControls {
+        margin-left: 1em;
+        width: 10em;
+      }
       @media screen and (max-width: 50em) {
         .desktop {
           display: none;
@@ -172,7 +233,7 @@ limitations under the License.
           display: block;
         }
         .row.selected {
-          background-color: transparent;
+          background-color: #fff;
         }
         .stats {
           display: none;
@@ -180,6 +241,9 @@ limitations under the License.
         .reviewed,
         .status {
           justify-content: flex-start;
+        }
+        .reviewed {
+          display: none;
         }
         .comments {
           min-width: initial;
@@ -194,151 +258,142 @@ limitations under the License.
         }
       }
     </style>
-    <header>
-      <div>Files</div>
-      <div class="rightControls">
-        <template is="dom-if"
-            if="[[_fileListActionsVisible(_shownFiles.*, _maxFilesForBulkActions)]]">
-          <gr-button link on-tap="_expandAllDiffs">Show diffs</gr-button>
-          <span class="separator">/</span>
-          <gr-button link on-tap="_collapseAllDiffs">Hide diffs</gr-button>
-        </template>
-        <template is="dom-if"
-            if="[[!_fileListActionsVisible(_shownFiles.*, _maxFilesForBulkActions)]]">
-          <div class="warning">
-            Bulk actions disabled because there are too many files.
-          </div>
-        </template>
-        <span class="separator">/</span>
-        <select
-            id="modeSelect"
-            is="gr-select"
-            bind-value="{{diffViewMode}}">
-          <option value="SIDE_BY_SIDE">Side By Side</option>
-          <option value="UNIFIED_DIFF">Unified</option>
-        </select>
-        <span class="separator">/</span>
-        <label>
-          Diff against
-          <select id="patchChange" bind-value="{{_diffAgainst}}" is="gr-select"
-              class="patchSetSelect" on-change="_handlePatchChange">
-            <option value="PARENT">Base</option>
-            <template
-                is="dom-repeat"
-                items="[[computeAllPatchSets(change)]]"
-                as="patchNum">
-              <option
-                  disabled$="[[_computePatchSetDisabled(patchNum.num, patchRange.patchNum)]]"
-                  value$="[[patchNum.num]]">
-                [[patchNum.num]]
-                [[patchNum.desc]]
-              </option>
-            </template>
-          </select>
-        </label>
-      </div>
-    </header>
-    <div on-tap="_handleFileListTap">
+    <div
+        id="container"
+        on-tap="_handleFileListTap">
       <template is="dom-repeat"
           items="[[_shownFiles]]"
           id="files"
           as="file"
           initial-count="[[fileListIncrement]]"
           target-framerate="1">
-        <div class="file-row row" data-path$="[[file.__path]]" tabindex="-1">
-          <div class="reviewed" hidden$="[[!_loggedIn]]" hidden>
-            <input type="checkbox" checked="[[file.isReviewed]]"
-                class="reviewed" aria-label="Reviewed checkbox">
-          </div>
-          <div class$="[[_computeClass('status', file.__path)]]"
-              tabindex="0"
-              aria-label$="[[_computeFileStatusLabel(file.status)]]">
-            [[_computeFileStatus(file.status)]]
-          </div>
-          <span
-              data-url="[[_computeDiffURL(change, patchRange, file.__path)]]"
-              class$="[[_computePathClass(file.__path, _expandedFilePaths.*)]]">
-            <a href$="[[_computeDiffURL(change, patchRange, file.__path)]]">
-              <span title$="[[_computeFileDisplayName(file.__path)]]"
-                  class="fullFileName">
-                [[_computeFileDisplayName(file.__path)]]
-              </span>
-              <span title$="[[_computeFileDisplayName(file.__path)]]"
-                  class="truncatedFileName">
-                [[_computeTruncatedFileDisplayName(file.__path)]]
-              </span>
-            </a>
-            <div class="oldPath" hidden$="[[!file.old_path]]" hidden
-                title$="[[file.old_path]]">
-              [[file.old_path]]
+        <div class="stickyArea">
+          <div class$="file-row row [[_computePathClass(file.__path, _expandedFilePaths.*)]]"
+              data-path$="[[file.__path]]" tabindex="-1">
+              <div class$="[[_computeClass('status', file.__path)]]"
+                  tabindex="0"
+                  aria-label$="[[_computeFileStatusLabel(file.status)]]">
+              [[_computeFileStatus(file.status)]]
             </div>
-          </span>
-          <div class="comments desktop">
-            <span class="drafts">
-              [[_computeDraftsString(drafts, patchRange.patchNum, file.__path)]]
+            <span
+                data-url="[[_computeDiffURL(change, patchRange.patchNum, patchRange.basePatchNum, file.__path)]]"
+                class="path">
+              <a class="pathLink" href$="[[_computeDiffURL(change, patchRange.patchNum, patchRange.basePatchNum, file.__path)]]">
+                <span title$="[[computeDisplayPath(file.__path)]]"
+                    class="fullFileName">
+                  [[computeDisplayPath(file.__path)]]
+                </span>
+                <span title$="[[computeDisplayPath(file.__path)]]"
+                    class="truncatedFileName">
+                  [[computeTruncatedPath(file.__path)]]
+                </span>
+              </a>
+              <div class="oldPath" hidden$="[[!file.old_path]]" hidden
+                  title$="[[file.old_path]]">
+                [[file.old_path]]
+              </div>
             </span>
-            [[_computeCommentsString(comments, patchRange.patchNum, file.__path)]]
-            [[_computeUnresolvedString(comments, drafts, patchRange.patchNum, file.__path)]]
-          </div>
-          <div class="comments mobile">
-            <span class="drafts">
-              [[_computeDraftsStringMobile(drafts, patchRange.patchNum,
+            <div class="comments desktop">
+              <span class="drafts">
+                [[_computeDraftsString(changeComments, patchRange.patchNum, file.__path)]]
+              </span>
+              [[_computeCommentsString(changeComments, patchRange.patchNum, file.__path)]]
+            </div>
+            <div class="comments mobile">
+              <span class="drafts">
+                [[_computeDraftsStringMobile(changeComments, patchRange.patchNum,
+                    file.__path)]]
+              </span>
+              [[_computeCommentsStringMobile(changeComments, patchRange.patchNum,
                   file.__path)]]
-            </span>
-            [[_computeCommentsStringMobile(comments, patchRange.patchNum,
-                file.__path)]]
+            </div>
+            <div class$="[[_computeSizeBarsClass(_showSizeBars, file.__path)]]">
+              <svg width="101" height="8">
+                <rect
+                    x="50"
+                    y="0"
+                    height="8"
+                    fill="#388E3C"
+                    transform="translate(100, 0) scale(-1,1)"
+                    width$="[[_computeSizeBarWidth(
+                        _sizeBarScale, file.lines_inserted)]]" />
+                <rect
+                    x="51"
+                    y="0"
+                    height="8"
+                    fill="#D32F2F"
+                    width$="[[_computeSizeBarWidth(
+                        _sizeBarScale, file.lines_deleted)]]" />
+              </svg>
+            </div>
+            <div class$="[[_computeClass('stats', file.__path)]]">
+              <span
+                  class="added"
+                  tabindex="0"
+                  aria-label$="[[file.lines_inserted]] lines added"
+                  hidden$=[[file.binary]]>
+                +[[file.lines_inserted]]
+              </span>
+              <span
+                  class="removed"
+                  tabindex="0"
+                  aria-label$="[[file.lines_deleted]] lines removed"
+                  hidden$=[[file.binary]]>
+                -[[file.lines_deleted]]
+              </span>
+              <span class$="[[_computeBinaryClass(file.size_delta)]]"
+                  hidden$=[[!file.binary]]>
+                [[_formatBytes(file.size_delta)]]
+                [[_formatPercentage(file.size, file.size_delta)]]
+              </span>
+            </div>
+            <div class="reviewed hideOnEdit" hidden$="[[!_loggedIn]]" hidden>
+              <span class$="reviewedLabel [[_computeReviewedClass(file.isReviewed)]]">Reviewed</span>
+              <label>
+                <input class="reviewed" type="checkbox" checked="[[file.isReviewed]]">
+                <span class="markReviewed" title="Mark as reviewed (shortcut: r)">[[_computeReviewedText(file.isReviewed)]]</span>
+              </label>
+            </div>
+            <div class="editFileControls showOnEdit">
+              <gr-edit-file-controls
+                  class$="[[_computeClass('', file.__path)]]"
+                  file-path="[[file.__path]]"></gr-edit-file-controls>
+            </div>
+            <div class="show-hide">
+              <label class="show-hide" data-path$="[[file.__path]]"
+                  data-expand=true>
+                <input type="checkbox" class="show-hide"
+                    checked$="[[_isFileExpanded(file.__path, _expandedFilePaths.*)]]"
+                    data-path$="[[file.__path]]" data-expand=true>
+                  <iron-icon
+                      id="icon"
+                      icon="[[_computeShowHideIcon(file.__path, _expandedFilePaths.*)]]">
+                  </iron-icon>
+              </label>
+            </div>
           </div>
-          <div class$="[[_computeClass('stats', file.__path)]]">
-            <span
-                class="added"
-                tabindex="0"
-                aria-label$="[[file.lines_inserted]] lines added"
-                hidden$=[[file.binary]]>
-              +[[file.lines_inserted]]
-            </span>
-            <span
-                class="removed"
-                tabindex="0"
-                aria-label$="[[file.lines_deleted]] lines removed"
-                hidden$=[[file.binary]]>
-              -[[file.lines_deleted]]
-            </span>
-            <span class$="[[_computeBinaryClass(file.size_delta)]]"
-                hidden$=[[!file.binary]]>
-              [[_formatBytes(file.size_delta)]]
-              [[_formatPercentage(file.size, file.size_delta)]]
-            </span>
-          </div>
-          <div class="show-hide" hidden$="[[_userPrefs.expand_inline_diffs]]">
-            <label class="show-hide" data-path$="[[file.__path]]"
-                data-expand=true>
-              <input type="checkbox" class="show-hide"
-                  checked$="[[_isFileExpanded(file.__path, _expandedFilePaths.*)]]"
-                  data-path$="[[file.__path]]" data-expand=true>
-              [[_computeShowHideText(file.__path, _expandedFilePaths.*)]]
-            </label>
-          </div>
+          <template is="dom-if"
+              if="[[_isFileExpanded(file.__path, _expandedFilePaths.*)]]">
+            <gr-diff
+                no-auto-render
+                display-line="[[_displayLine]]"
+                inline-index=[[index]]
+                hidden="[[!_isFileExpanded(file.__path, _expandedFilePaths.*)]]"
+                change-num="[[changeNum]]"
+                patch-range="[[patchRange]]"
+                path="[[file.__path]]"
+                prefs="[[diffPrefs]]"
+                project-name="[[change.project]]"
+                project-config="[[projectConfig]]"
+                on-line-selected="_onLineSelected"
+                no-render-on-prefs-change
+                view-mode="[[diffViewMode]]"></gr-diff>
+          </template>
         </div>
-        <template is="dom-if"
-            if="[[_isFileExpanded(file.__path, _expandedFilePaths.*)]]">
-          <gr-diff
-              no-auto-render
-              display-line="[[_displayLine]]"
-              inline-index=[[index]]
-              hidden="[[!_isFileExpanded(file.__path, _expandedFilePaths.*)]]"
-              change-num="[[changeNum]]"
-              patch-range="[[patchRange]]"
-              path="[[file.__path]]"
-              prefs="[[diffPrefs]]"
-              project-config="[[projectConfig]]"
-              on-line-selected="_onLineSelected"
-              no-render-on-prefs-change
-              view-mode="[[_getDiffViewMode(diffViewMode, _userPrefs)]]"></gr-diff>
-        </template>
       </template>
     </div>
     <div
-        class$="row totalChanges [[_computeExpandInlineClass(_userPrefs)]]"
+        class="row totalChanges"
         hidden$="[[_hideChangeTotals]]">
       <div class="total-stats">
         <span
@@ -354,9 +409,13 @@ limitations under the License.
           -[[_patchChange.deleted]]
         </span>
       </div>
+      <!-- Empty div here exists to keep spacing in sync with file rows. -->
+      <div class="reviewed hideOnEdit" hidden$="[[!_loggedIn]]" hidden></div>
+      <div class="editFileControls showOnEdit"></div>
+      <div class="show-hide"></div>
     </div>
     <div
-        class$="row totalChanges [[_computeExpandInlineClass(_userPrefs)]]"
+        class="row totalChanges"
         hidden$="[[_hideBinaryChangeTotals]]">
       <div class="total-stats">
         <span class="added" aria-label="Total lines added">
@@ -371,25 +430,25 @@ limitations under the License.
         </span>
       </div>
     </div>
-    <gr-button
-        class="fileListButton"
-        id="incrementButton"
-        hidden$="[[_computeFileListButtonHidden(numFilesShown, _files)]]"
-        link on-tap="_incrementNumFilesShown">
-      [[_computeIncrementText(numFilesShown, _files)]]
-    </gr-button>
-    <gr-tooltip-content
-        has-tooltip="[[_computeWarnShowAll(_files)]]"
-        show-icon="[[_computeWarnShowAll(_files)]]"
-        title$="[[_computeShowAllWarning(_files)]]">
+    <div class$="row controlRow [[_computeFileListControlClass(numFilesShown, _files)]]">
       <gr-button
           class="fileListButton"
-          id="showAllButton"
-          hidden$="[[_computeFileListButtonHidden(numFilesShown, _files)]]"
-          link on-tap="_showAllFiles">
-        [[_computeShowAllText(_files)]]
-      </gr-button><!--
- --></gr-tooltip-content>
+          id="incrementButton"
+          link on-tap="_incrementNumFilesShown">
+        [[_computeIncrementText(numFilesShown, _files)]]
+      </gr-button>
+      <gr-tooltip-content
+          has-tooltip="[[_computeWarnShowAll(_files)]]"
+          show-icon="[[_computeWarnShowAll(_files)]]"
+          title$="[[_computeShowAllWarning(_files)]]">
+        <gr-button
+            class="fileListButton"
+            id="showAllButton"
+            link on-tap="_showAllFiles">
+          [[_computeShowAllText(_files)]]
+        </gr-button><!--
+  --></gr-tooltip-content>
+    </div>
     <gr-diff-preferences
         id="diffPreferences"
         prefs="{{diffPrefs}}"

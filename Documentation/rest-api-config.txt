@@ -52,6 +52,9 @@ As result a link:#server-info[ServerInfo] entity is returned.
 
   )]}'
   {
+    "accounts": {
+      "visibility": "ALL"
+    },
     "auth": {
       "auth_type": "LDAP",
       "use_contributor_agreements": true,
@@ -133,7 +136,7 @@ As result a link:#server-info[ServerInfo] entity is returned.
       "from": 0
     },
     "user": {
-      "anonymous_coward_name": "Anonymous Coward"
+      "anonymous_coward_name": "Name of user not set"
     }
   }
 ----
@@ -190,45 +193,6 @@ is returned that contains detected consistency problems.
   }
 ----
 
-[[check-access]]
-=== Check Access
---
-'POST /config/server/check.access'
---
-
-Runs access checks for other users.
-
-Input for the access checks that should be run must be provided in
-the request body inside a
-link:#access-check-input[AccessCheckInput] entity.
-
-.Request
-----
-  POST /config/server/check HTTP/1.0
-  Content-Type: application/json; charset=UTF-8
-
-  {
-    "project": "medium",
-    "account": "Kristen.Burns@gerritcodereview.com",
-    "ref": "refs/heads/secret/bla"
-  }
-----
-
-The result is a link:#access-check-info[AccessCheckInfo] entity
-detailing the read access of the given user for the given project (or
-project-ref combination).
-
-.Response
-----
-  HTTP/1.1 200 OK
-  Content-Type: application/json; charset=UTF-8
-
-  )]}'
-  {
-    "message": "user Kristen Burns \u003cKristen.Burns@gerritcodereview.com\u003e (1000098) cannot see ref refs/heads/secret/master in project medium",
-    "status": 403
-  }
-----
 
 [[confirm-email]]
 === Confirm Email
@@ -296,25 +260,6 @@ The entries in the map are sorted by cache name.
       "average_get": "2.5ms",
       "hit_ratio": {
         "mem": 94
-      }
-    },
-    "accounts_byemail": {
-      "type": "MEM",
-      "entries": {
-        "mem": 4
-      },
-      "average_get": "771.8us",
-      "hit_ratio": {
-        "mem": 95
-      }
-    },
-    "accounts_byname": {
-      "type": "MEM",
-      "entries": {
-        "mem": 4
-      },
-      "hit_ratio": {
-        "mem": 100
       }
     },
     "adv_bases": {
@@ -388,12 +333,17 @@ The entries in the map are sorted by cache name.
         "mem": 12
       }
     },
-    "groups_byinclude": {
+    "groups_bymember": {
       "type": "MEM",
       "entries": {},
       "hit_ratio": {}
     },
     "groups_byname": {
+      "type": "MEM",
+      "entries": {},
+      "hit_ratio": {}
+    },
+    "groups_bysubgroup": {
       "type": "MEM",
       "entries": {},
       "hit_ratio": {}
@@ -412,16 +362,6 @@ The entries in the map are sorted by cache name.
       "type": "MEM",
       "entries": {},
       "hit_ratio": {}
-    },
-    groups_members": {
-      "type": "MEM",
-      "entries": {
-        "mem": 4
-      },
-      "average_get": "697.8us",
-      "hit_ratio": {
-        "mem": 82
-      }
     },
     "permission_sort": {
       "type": "MEM",
@@ -514,8 +454,6 @@ The cache names are lexicographically sorted.
   )]}'
   [
     "accounts",
-    "accounts_byemail",
-    "accounts_byname",
     "adv_bases",
     "change_kind",
     "changes",
@@ -524,11 +462,11 @@ The cache names are lexicographically sorted.
     "diff_intraline",
     "git_tags",
     "groups",
-    "groups_byinclude",
+    "groups_bymember",
     "groups_byname",
+    "groups_bysubgroup",
     "groups_byuuid",
     "groups_external",
-    "groups_members",
     "permission_sort",
     "plugin_resources",
     "project_list",
@@ -1079,10 +1017,6 @@ PreferencesInfo] is returned.
         "name": "Changes"
       },
       {
-        "url": "#/q/owner:self+is:draft",
-        "name": "Drafts"
-      },
-      {
         "url": "#/q/has:draft",
         "name": "Draft Comments"
       },
@@ -1160,10 +1094,6 @@ PreferencesInfo] is returned.
       {
         "url": "#/dashboard/self",
         "name": "Changes"
-      },
-      {
-        "url": "#/q/owner:self+is:draft",
-        "name": "Drafts"
       },
       {
         "url": "#/q/has:draft",
@@ -1293,6 +1223,103 @@ DiffPreferencesInfo] is returned.
   }
 ----
 
+[[get-edit-preferences]]
+=== Get Default Edit Preferences
+
+--
+'GET /config/server/preferences.edit'
+--
+
+Returns the default edit preferences for the server.
+
+.Request
+----
+  GET /a/config/server/preferences.edit HTTP/1.0
+----
+
+As response a link:rest-api-accounts.html#edit-preferences-info[
+EditPreferencesInfo] is returned.
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "tab_size": 8,
+    "line_length": 100,
+    "indent_unit": 2,
+    "cursor_blink_rate": 0,
+    "show_tabs": true,
+    "syntax_highlighting": true,
+    "match_brackets": true,
+    "auto_close_brackets": true,
+    "theme": "DEFAULT",
+    "key_map_type": "DEFAULT"
+  }
+----
+
+[[set-edit-preferences]]
+=== Set Default Edit Preferences
+
+--
+'PUT /config/server/preferences.edit'
+--
+
+Sets the default edit preferences for the server.
+
+The new edit preferences must be provided in the request body as a
+link:rest-api-accounts.html#edit-preferences-input[
+EditPreferencesInput] entity.
+
+To be allowed to set default edit preferences, a user must be a member
+of a group that is granted the
+link:access-control.html#capability_administrateServer[
+Administrate Server] capability.
+
+.Request
+----
+  PUT /a/config/server/preferences.edit HTTP/1.0
+  Content-Type: application/json; charset=UTF-8
+
+  {
+    "tab_size": 8,
+    "line_length": 80,
+    "indent_unit": 2,
+    "cursor_blink_rate": 0,
+    "show_tabs": true,
+    "syntax_highlighting": true,
+    "match_brackets": true,
+    "auto_close_brackets": true,
+    "theme": "DEFAULT",
+    "key_map_type": "DEFAULT"
+  }
+----
+
+As response a link:rest-api-accounts.html#edit-preferences-info[
+EditPreferencesInfo] is returned.
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "tab_size": 8,
+    "line_length": 80,
+    "indent_unit": 2,
+    "cursor_blink_rate": 0,
+    "show_tabs": true,
+    "syntax_highlighting": true,
+    "match_brackets": true,
+    "auto_close_brackets": true,
+    "theme": "DEFAULT",
+    "key_map_type": "DEFAULT"
+  }
+----
+
 
 [[ids]]
 == IDs
@@ -1315,33 +1342,19 @@ The ID of the task (hex string).
 [[json-entities]]
 == JSON Entities
 
-[[access-check-info]]
-=== AccessCheckInfo
-The `AccessCheckInfo` entity is the result of a
-an access check.
+[[accounts-config-info]]
+=== AccountsConfigInfo
+The `AccountsConfigInfo` entity contains information about Gerrit
+configuration from the link:config-gerrit.html#accounts[accounts]
+section.
 
-[options="header",cols="1,^1,5"]
-|=========================================
-|Field Name                  ||Description
-|`status`||The HTTP status code for the access.
-200 means success, 403 means denied and 404 means the project does not
-exist.
-|`message`|optional|A clarifying message if `status` is not 200.
-=========================================
-
-[[access-check-input]]
-=== AccessCheckInput
-The `AccessCheckInput` entity is a tuple of (account, project)  or
-(account, project, ref) for which we want to check access.
-
-[options="header",cols="1,^1,5"]
-|=========================================
-|Field Name                  ||Description
-|`account`||The account for which to check access
-|`project`||The project for which to check access
-|`ref`|optional|The refname for which to check access
-=========================================
-
+[options="header",cols="1,6"]
+|=============================
+|Field Name           |Description
+|`visibility`         |
+link:config-gerrit.html#accounts.visibility[Visibility setting for
+accounts].
+|=============================
 
 [[auth-info]]
 === AuthInfo
@@ -1467,9 +1480,6 @@ section.
 |`allow_blame`        |not set if `false`|
 link:config-gerrit.html#change.allowBlame[Whether blame on side by side diff is
 allowed].
-|`allow_drafts`       |not set if `false`|
-link:config-gerrit.html#change.allowDrafts[Whether draft workflow is
-allowed].
 |`large_change`       ||
 link:config-gerrit.html#change.largeChange[Number of changed lines from
 which on a change is considered as a large change].
@@ -1485,19 +1495,59 @@ interface should poll for updates to the currently open change].
 |`submit_whole_topic` ||
 link:config-gerrit.html#change.submitWholeTopic[A configuration if
 the whole topic is submitted].
+|`disable_private_changes` |not set if `false`|
+Returns true if private changes are disabled.
 |=============================
 
 [[check-account-external-ids-input]]
 === CheckAccountExternalIdsInput
 The `CheckAccountExternalIdsInput` entity contains input for the
-account external IDs consistency check.
+account external ID consistency check.
 
 Currently this entity contains no fields.
 
 [[check-account-external-ids-result-info]]
 === CheckAccountExternalIdsResultInfo
 The `CheckAccountExternalIdsResultInfo` entity contains the result of
-running the account external IDs consistency check.
+running the account external ID consistency check.
+
+[options="header",cols="1,6"]
+|======================
+|Field Name|Description
+|`problems`|A list of link:#consistency-problem-info[
+ConsistencyProblemInfo] entities.
+|======================
+
+[[check-accounts-input]]
+=== CheckAccountsInput
+The `CheckAccountsInput` entity contains input for the account consistency
+check.
+
+Currently this entity contains no fields.
+
+[[check-accounts-result-info]]
+=== CheckAccountsResultInfo
+The `CheckAccountsResultInfo` entity contains the result of running the
+account consistency check.
+
+[options="header",cols="1,6"]
+|======================
+|Field Name|Description
+|`problems`|A list of link:#consistency-problem-info[
+ConsistencyProblemInfo] entities.
+|======================
+
+[[check-groups-input]]
+=== CheckGroupsInput
+The `CheckGroupsInput` entity contains input for the group consistency
+check.
+
+Currently this entity contains no fields.
+
+[[check-groups-result-info]]
+=== CheckGroupsResultInfo
+The `CheckGroupsResultInfo` entity contains the result of running the
+group consistency check.
 
 [options="header",cols="1,6"]
 |======================
@@ -1521,6 +1571,9 @@ link:#check-accounts-result-info[CheckAccountsResultInfo] entity.
 The result of running the account external ID consistency check as a
 link:#check-account-external-ids-result-info[
 CheckAccountExternalIdsResultInfo] entity.
+|`check_groups_result`              |optional|
+The result of running the group consistency check as a
+link:#check-groups-result-info[CheckGroupsResultInfo] entity.
 |================================================
 
 [[consistency-check-input]]
@@ -1538,6 +1591,9 @@ link:#check-accounts-input[CheckAccountsInput] entity.
 Input for the account external ID consistency check as
 link:#check-account-external-ids-input[CheckAccountExternalIdsInput]
 entity.
+|`check_groups`              |optional|
+Input for the group consistency check as link:#check-groups-input[
+CheckGroupsInput] entity.
 |=========================================
 
 [[consistency-problem-info]]
@@ -1761,6 +1817,10 @@ the Gerrit server.
 [options="header",cols="1,^1,5"]
 |=======================================
 |Field Name                ||Description
+|`accounts`                ||
+Information about the configuration from the
+link:config-gerrit.html#accounts[accounts] section as
+link:#accounts-config-info[AccountsConfigInfo] entity.
 |`auth`                    ||
 Information about the authentication configuration as
 link:#auth-info[AuthInfo] entity.
@@ -1801,6 +1861,9 @@ the first matched group, `$2` for the second matched group, etc.
 Information about the configuration from the
 link:config-gerrit.html#user[user] section as link:#user-config-info[
 UserConfigInfo] entity.
+|`default_theme`           |optional|
+URL to a default PolyGerrit UI theme plugin, if available.
+Located in `/static/gerrit-theme.html` by default.
 |=======================================
 
 [[sshd-info]]

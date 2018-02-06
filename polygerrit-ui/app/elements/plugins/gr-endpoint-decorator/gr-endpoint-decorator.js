@@ -14,11 +14,24 @@
 (function() {
   'use strict';
 
+  const INIT_PROPERTIES_TIMEOUT_MS = 10000;
+
   Polymer({
     is: 'gr-endpoint-decorator',
 
     properties: {
       name: String,
+      /** @type {!Map} */
+      _domHooks: {
+        type: Map,
+        value() { return new Map(); },
+      },
+    },
+
+    detached() {
+      for (const [el, domHook] of this._domHooks) {
+        domHook.handleInstanceDetached(el);
+      }
     },
 
     _import(url) {
@@ -27,23 +40,94 @@
       });
     },
 
-    _initPluginDomHook(name, plugin) {
+    _initDecoration(name, plugin) {
       const el = document.createElement(name);
+      return this._initProperties(el, plugin,
+          this.getContentChildren().find(
+              el => el.nodeName !== 'GR-ENDPOINT-PARAM'))
+          .then(el => this._appendChild(el));
+    },
+
+    _initReplacement(name, plugin) {
+      this.getContentChildNodes()
+          .filter(node => node.nodeName !== 'GR-ENDPOINT-PARAM')
+          .forEach(node => node.remove());
+      const el = document.createElement(name);
+      return this._initProperties(el, plugin).then(
+          el => this._appendChild(el));
+    },
+
+    _getEndpointParams() {
+      return Polymer.dom(this).querySelectorAll('gr-endpoint-param');
+    },
+
+    /**
+     * @param {!Element} el
+     * @param {!Object} plugin
+     * @param {!Element=} opt_content
+     * @return {!Promise<Element>}
+     */
+    _initProperties(el, plugin, opt_content) {
       el.plugin = plugin;
-      el.content = this.getContentChildren()[0];
+      if (opt_content) {
+        el.content = opt_content;
+      }
+      const expectProperties = this._getEndpointParams().map(paramEl => {
+        const helper = plugin.attributeHelper(paramEl);
+        const paramName = paramEl.getAttribute('name');
+        return helper.get('value').then(
+            value => helper.bind('value',
+                value => plugin.attributeHelper(el).set(paramName, value))
+            );
+      });
+      let timeoutId;
+      const timeout = new Promise(
+        resolve => timeoutId = setTimeout(() => {
+          console.warn(
+              'Timeout waiting for endpoint properties initialization: ' +
+              `plugin ${plugin.getPluginName()}, endpoint ${this.name}`);
+        }, INIT_PROPERTIES_TIMEOUT_MS));
+      return Promise.race([timeout, Promise.all(expectProperties)])
+          .then(() => {
+            clearTimeout(timeoutId);
+            return el;
+          });
+    },
+
+    _appendChild(el) {
       return Polymer.dom(this.root).appendChild(el);
     },
 
-    ready() {
-      Gerrit.awaitPluginsLoaded().then(() => Promise.all(
-          Gerrit._getPluginsForEndpoint(this.name).map(
-              pluginUrl => this._import(pluginUrl)))
-      ).then(() => {
-        const modulesData = Gerrit._getEndpointDetails(this.name);
-        for (const {moduleName, plugin} of modulesData) {
-          this._initPluginDomHook(moduleName, plugin);
-        }
+    _initModule({moduleName, plugin, type, domHook}) {
+      let initPromise;
+      switch (type) {
+        case 'decorate':
+          initPromise = this._initDecoration(moduleName, plugin);
+          break;
+        case 'replace':
+          initPromise = this._initReplacement(moduleName, plugin);
+          break;
+      }
+      if (!initPromise) {
+        console.warn('Unable to initialize module' +
+            `${moduleName} from ${plugin.getPluginName()}`);
+      }
+      initPromise.then(el => {
+        domHook.handleInstanceAttached(el);
+        this._domHooks.set(el, domHook);
       });
+    },
+
+    ready() {
+      Gerrit._endpoints.onNewEndpoint(this.name, this._initModule.bind(this));
+      Gerrit.awaitPluginsLoaded().then(() => Promise.all(
+          Gerrit._endpoints.getPlugins(this.name).map(
+              pluginUrl => this._import(pluginUrl)))
+      ).then(() =>
+        Gerrit._endpoints
+            .getDetails(this.name)
+            .forEach(this._initModule, this)
+      );
     },
   });
 })();

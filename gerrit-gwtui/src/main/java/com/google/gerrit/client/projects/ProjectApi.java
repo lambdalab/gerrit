@@ -49,7 +49,7 @@ public class ProjectApi {
       Project.NameKey name, String viewName, int limit, int start, String match) {
     RestApi call = project(name).view(viewName);
     call.addParameter("n", limit);
-    call.addParameter("s", start);
+    call.addParameter("S", start);
     if (match != null) {
       if (match.startsWith("^")) {
         call.addParameter("r", match);
@@ -62,9 +62,14 @@ public class ProjectApi {
 
   /** Create a new tag */
   public static void createTag(
-      Project.NameKey name, String ref, String revision, AsyncCallback<TagInfo> cb) {
+      Project.NameKey name,
+      String ref,
+      String revision,
+      String annotation,
+      AsyncCallback<TagInfo> cb) {
     TagInput input = TagInput.create();
     input.setRevision(revision);
+    input.setMessage(annotation);
     project(name).view("tags").id(ref).ifNoneMatch().put(input, cb);
   }
 
@@ -147,6 +152,7 @@ public class ProjectApi {
       InheritableBoolean enableSignedPush,
       InheritableBoolean requireSignedPush,
       InheritableBoolean rejectImplicitMerges,
+      InheritableBoolean privateByDefault,
       InheritableBoolean enableReviewerByEmail,
       InheritableBoolean matchAuthorToCommitterDate,
       String maxObjectSizeLimit,
@@ -168,8 +174,11 @@ public class ProjectApi {
       in.setRequireSignedPush(requireSignedPush);
     }
     in.setRejectImplicitMerges(rejectImplicitMerges);
+    in.setPrivateByDefault(privateByDefault);
     in.setMaxObjectSizeLimit(maxObjectSizeLimit);
-    in.setSubmitType(submitType);
+    if (submitType != null) {
+      in.setSubmitType(submitType);
+    }
     in.setState(state);
     in.setPluginConfigValues(pluginConfigValues);
     in.setEnableReviewerByEmail(enableReviewerByEmail);
@@ -298,6 +307,12 @@ public class ProjectApi {
       setRequireSignedPushRaw(v.name());
     }
 
+    final void setPrivateByDefault(InheritableBoolean v) {
+      setPrivateByDefault(v.name());
+    }
+
+    private native void setPrivateByDefault(String v) /*-{ if(v)this.private_by_default=v; }-*/;
+
     final void setEnableReviewerByEmail(InheritableBoolean v) {
       setEnableReviewerByEmailRaw(v.name());
     }
@@ -373,6 +388,8 @@ public class ProjectApi {
     protected TagInput() {}
 
     final native void setRevision(String r) /*-{ if(r)this.revision=r; }-*/;
+
+    final native void setMessage(String m) /*-{ if(m)this.message=m; }-*/;
   }
 
   private static class BranchInput extends JavaScriptObject {

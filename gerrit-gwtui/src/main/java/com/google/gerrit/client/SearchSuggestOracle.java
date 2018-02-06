@@ -53,7 +53,6 @@ public class SearchSuggestOracle extends HighlightSuggestOracle {
                           if ("self".startsWith(request.getQuery())) {
                             final ArrayList<SuggestOracle.Suggestion> r =
                                 new ArrayList<>(response.getSuggestions().size() + 1);
-                            r.addAll(response.getSuggestions());
                             r.add(
                                 new SuggestOracle.Suggestion() {
                                   @Override
@@ -66,6 +65,7 @@ public class SearchSuggestOracle extends HighlightSuggestOracle {
                                     return "self";
                                   }
                                 });
+                            r.addAll(response.getSuggestions());
                             response.setSuggestions(r);
                           }
                           done.onSuggestionsReady(request, response);
@@ -89,6 +89,7 @@ public class SearchSuggestOracle extends HighlightSuggestOracle {
     suggestions.add("ownerin:");
     suggestions.add("author:");
     suggestions.add("committer:");
+    suggestions.add("assignee:");
 
     suggestions.add("reviewer:");
     suggestions.add("reviewer:self");
@@ -129,7 +130,6 @@ public class SearchSuggestOracle extends HighlightSuggestOracle {
     suggestions.add("is:reviewer");
     suggestions.add("is:open");
     suggestions.add("is:pending");
-    suggestions.add("is:draft");
     suggestions.add("is:private");
     suggestions.add("is:closed");
     suggestions.add("is:merged");
@@ -137,6 +137,7 @@ public class SearchSuggestOracle extends HighlightSuggestOracle {
     suggestions.add("is:mergeable");
     suggestions.add("is:ignored");
     suggestions.add("is:wip");
+    suggestions.add("is:assigned");
 
     suggestions.add("status:");
     suggestions.add("status:open");
@@ -145,7 +146,6 @@ public class SearchSuggestOracle extends HighlightSuggestOracle {
     suggestions.add("status:closed");
     suggestions.add("status:merged");
     suggestions.add("status:abandoned");
-    suggestions.add("status:draft");
 
     suggestions.add("added:");
     suggestions.add("deleted:");
@@ -153,6 +153,8 @@ public class SearchSuggestOracle extends HighlightSuggestOracle {
     suggestions.add("size:");
 
     suggestions.add("unresolved:");
+
+    suggestions.add("revertof:");
 
     if (Gerrit.isNoteDbEnabled()) {
       suggestions.add("cc:");

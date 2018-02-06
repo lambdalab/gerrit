@@ -24,32 +24,77 @@
       },
     },
 
+    behaviors: [
+      Gerrit.BaseUrlBehavior,
+    ],
+
     _configChanged(config) {
-      const jsPlugins = config.js_resource_paths || [];
-      const htmlPlugins = config.html_resource_paths || [];
-      Gerrit._setPluginsCount(jsPlugins.length + htmlPlugins.length);
+      const plugins = config.plugin;
+      const htmlPlugins = plugins.html_resource_paths || [];
+      const jsPlugins = this._handleMigrations(plugins.js_resource_paths || [],
+          htmlPlugins);
+      const defaultTheme = config.default_theme;
+      Gerrit._setPluginsCount(
+          jsPlugins.length + htmlPlugins.length + (defaultTheme ? 1 : 0));
+      if (defaultTheme) {
+        // Make theme first to be first to load.
+        // Load sync to work around rare theme loading race condition.
+        this._importHtmlPlugins([defaultTheme], true);
+      }
       this._loadJsPlugins(jsPlugins);
       this._importHtmlPlugins(htmlPlugins);
     },
 
-    _importHtmlPlugins(plugins) {
-      for (let url of plugins) {
-        if (!url.startsWith('http')) {
-          url = '/' + url;
-        }
+    /**
+     * Omit .js plugins that have .html counterparts.
+     * For example, if plugin provides foo.js and foo.html, skip foo.js.
+     */
+    _handleMigrations(jsPlugins, htmlPlugins) {
+      return jsPlugins.filter(url => {
+        const counterpart = url.replace(/\.js$/, '.html');
+        return !htmlPlugins.includes(counterpart);
+      });
+    },
+
+    /**
+     * @suppress {checkTypes}
+     * States that it expects no more than 3 parameters, but that's not true.
+     * @todo (beckysiegel) check Polymer annotations and submit change.
+     * @param {Array} plugins
+     * @param {boolean=} opt_sync
+     */
+    _importHtmlPlugins(plugins, opt_sync) {
+      const async = !opt_sync;
+      for (const url of plugins) {
+        // onload (second param) needs to be a function. When null or undefined
+        // were passed, plugins were not loaded correctly.
         this.importHref(
-            url, Gerrit._pluginInstalled, Gerrit._pluginInstalled, true);
+            this._urlFor(url), () => {}, Gerrit._pluginInstalled, async);
       }
     },
 
     _loadJsPlugins(plugins) {
-      for (let i = 0; i < plugins.length; i++) {
-        const scriptEl = document.createElement('script');
-        scriptEl.defer = true;
-        scriptEl.src = '/' + plugins[i];
-        scriptEl.onerror = Gerrit._pluginInstalled;
-        document.body.appendChild(scriptEl);
+      for (const url of plugins) {
+        this._createScriptTag(this._urlFor(url));
       }
+    },
+
+    _createScriptTag(url) {
+      const el = document.createElement('script');
+      el.defer = true;
+      el.src = url;
+      el.onerror = Gerrit._pluginInstalled;
+      return document.body.appendChild(el);
+    },
+
+    _urlFor(pathOrUrl) {
+      if (pathOrUrl.startsWith('http')) {
+        return pathOrUrl;
+      }
+      if (!pathOrUrl.startsWith('/')) {
+        pathOrUrl = '/' + pathOrUrl;
+      }
+      return this.getBaseUrl() + pathOrUrl;
     },
   });
 })();

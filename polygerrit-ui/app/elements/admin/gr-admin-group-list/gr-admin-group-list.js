@@ -33,7 +33,12 @@
       _path: {
         type: String,
         readOnly: true,
-        value: '/admin/groups/',
+        value: '/admin/groups',
+      },
+      _hasNewGroupName: Boolean,
+      _createNewCapability: {
+        type: Boolean,
+        value: false,
       },
       _groups: Array,
 
@@ -62,9 +67,10 @@
       Gerrit.ListViewBehavior,
     ],
 
-    listeners: {
-      'next-page': '_handleNextPage',
-      'previous-page': '_handlePreviousPage',
+    attached() {
+      this._getCreateGroupCapability();
+      this.fire('title-change', {title: 'Groups'});
+      this._maybeOpenCreateOverlay(this.params);
     },
 
     _paramsChanged(params) {
@@ -76,8 +82,30 @@
           this._offset);
     },
 
+    /**
+     * Opens the create overlay if the route has a hash 'create'
+     * @param {!Object} params
+     */
+    _maybeOpenCreateOverlay(params) {
+      if (params && params.openCreateModal) {
+        this.$.createOverlay.open();
+      }
+    },
+
     _computeGroupUrl(id) {
-      return this.getUrl(this._path, id);
+      return Gerrit.Nav.getUrlForGroup(id);
+    },
+
+    _getCreateGroupCapability() {
+      return this.$.restAPI.getAccount().then(account => {
+        if (!account) { return; }
+        return this.$.restAPI.getAccountCapabilities(['createGroup'])
+            .then(capabilities => {
+              if (capabilities.createGroup) {
+                this._createNewCapability = true;
+              }
+            });
+      });
     },
 
     _getGroups(filter, groupsPerPage, offset) {
@@ -95,6 +123,18 @@
              });
             this._loading = false;
           });
+    },
+
+    _handleCreateGroup() {
+      this.$.createNewModal.handleCreateGroup();
+    },
+
+    _handleCloseCreate() {
+      this.$.createOverlay.close();
+    },
+
+    _handleCreateClicked() {
+      this.$.createOverlay.open();
     },
 
     _visibleToAll(item) {

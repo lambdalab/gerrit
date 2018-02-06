@@ -19,6 +19,10 @@
     CHANGE_NUM: /^\s*[1-9][0-9]*\s*$/g,
   };
 
+  const USER_QUERY_PATTERN = /^owner:\s?("[^"]+"|[^ ]+)$/;
+
+  const LIMIT_OPERATOR_PATTERN = /\blimit:(\d+)/i;
+
   Polymer({
     is: 'gr-change-list-view',
 
@@ -52,6 +56,11 @@
 
       /**
        * State persisted across restamps of the element.
+       *
+       * Need sub-property declaration since it is used in template before
+       * assignment.
+       * @type {{ selectedChangeIndex: (number|undefined) }}
+       *
        */
       viewState: {
         type: Object,
@@ -77,7 +86,10 @@
       /**
        * Change objects loaded from the server.
        */
-      _changes: Array,
+      _changes: {
+        type: Array,
+        observer: '_changesChanged',
+      },
 
       /**
        * For showing a "loading..." string during ajax requests.
@@ -85,6 +97,12 @@
       _loading: {
         type: Boolean,
         value: true,
+      },
+
+      /** @type {?String} */
+      _userId: {
+        type: String,
+        value: null,
       },
     },
 
@@ -98,7 +116,7 @@
     },
 
     _paramsChanged(value) {
-      if (value.view != this.tagName.toLowerCase()) { return; }
+      if (value.view !== Gerrit.Nav.View.SEARCH) { return; }
 
       this._loading = true;
       this._query = value.query;
@@ -116,11 +134,13 @@
         this._changesPerPage = prefs.changes_per_page;
         return this._getChanges();
       }).then(changes => {
+        changes = changes || [];
         if (this._query && changes.length === 1) {
           for (const query in LookupQueryPatterns) {
             if (LookupQueryPatterns.hasOwnProperty(query) &&
                 this._query.match(LookupQueryPatterns[query])) {
-              page.show('/c/' + changes[0]._number);
+              this._replaceCurrentLocation(
+                  Gerrit.Nav.getUrlForChange(changes[0]));
               return;
             }
           }
@@ -128,6 +148,10 @@
         this._changes = changes;
         this._loading = false;
       });
+    },
+
+    _replaceCurrentLocation(url) {
+      window.location.replace(url);
     },
 
     _getChanges() {
@@ -139,10 +163,19 @@
       return this.$.restAPI.getPreferences();
     },
 
+    _limitFor(query, defaultLimit) {
+      const match = query.match(LIMIT_OPERATOR_PATTERN);
+      if (!match) {
+        return defaultLimit;
+      }
+      return parseInt(match[1], 10);
+    },
+
     _computeNavLink(query, offset, direction, changesPerPage) {
       // Offset could be a string when passed from the router.
       offset = +(offset || 0);
-      const newOffset = Math.max(0, offset + (changesPerPage * direction));
+      const limit = this._limitFor(query, changesPerPage);
+      const newOffset = Math.max(0, offset + (limit * direction));
       // Double encode URI component.
       let href = this.getBaseUrl() + '/q/' + this.encodeURL(query, false);
       if (newOffset > 0) {
@@ -170,6 +203,19 @@
       if (this.$.prevArrow.hidden) { return; }
       page.show(this._computeNavLink(
           this._query, this._offset, -1, this._changesPerPage));
+    },
+
+    _changesChanged(changes) {
+      if (!changes || !changes.length ||
+          !USER_QUERY_PATTERN.test(this._query)) {
+        this._userId = null;
+        return;
+      }
+      this._userId = changes[0].owner.email;
+    },
+
+    _computeUserHeaderClass(userId) {
+      return userId ? '' : 'hide';
     },
   });
 })();

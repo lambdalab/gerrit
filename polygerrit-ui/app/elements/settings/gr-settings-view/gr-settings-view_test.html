@@ -51,7 +51,7 @@ limitations under the License.
       let titleEl;
       for (let i = 0; i < sections.length; i++) {
         titleEl = sections[i].querySelector('.title');
-        if (titleEl.textContent === title) {
+        if (titleEl.textContent.trim() === title) {
           return sections[i].querySelector('.value');
         }
       }
@@ -87,6 +87,7 @@ limitations under the License.
         diff_view: 'UNIFIED_DIFF',
         email_strategy: 'ENABLED',
         email_format: 'HTML_PLAINTEXT',
+        size_bar_in_change_table: true,
 
         my: [
           {url: '/first/url', name: 'first name', target: '_blank'},
@@ -168,9 +169,12 @@ limitations under the License.
           .firstElementChild.bindValue, preferences.email_format);
       assert.equal(valueOf('Diff view', 'preferences')
           .firstElementChild.bindValue, preferences.diff_view);
-      assert.equal(valueOf('Expand inline diffs', 'preferences')
-          .firstElementChild.checked, false);
+      assert.equal(valueOf('Show size bars in file list', 'preferences')
+          .firstElementChild.checked, true);
       assert.equal(valueOf('Publish comments on push', 'preferences')
+          .firstElementChild.checked, false);
+      assert.equal(valueOf(
+          'Insert Signed-off-by Footer For Inline Edit Changes', 'preferences')
           .firstElementChild.checked, false);
 
       assert.isFalse(element._prefsChanged);
@@ -180,11 +184,11 @@ limitations under the License.
       const diffSelect = valueOf('Diff view', 'preferences').firstElementChild;
       diffSelect.bindValue = 'SIDE_BY_SIDE';
 
-      const expandInlineDiffs =
-          valueOf('Expand inline diffs', 'preferences').firstElementChild;
+      const publishOnPush =
+          valueOf('Publish comments on push', 'preferences').firstElementChild;
       diffSelect.fire('change');
 
-      MockInteractions.tap(expandInlineDiffs);
+      MockInteractions.tap(publishOnPush);
 
       assert.isTrue(element._prefsChanged);
       assert.isFalse(element._menuChanged);
@@ -193,7 +197,7 @@ limitations under the License.
         savePreferences(prefs) {
           assert.equal(prefs.diff_view, 'SIDE_BY_SIDE');
           assertMenusEqual(prefs.my, preferences.my);
-          assert.equal(prefs.expand_inline_diffs, true);
+          assert.equal(prefs.publish_comments_on_push, true);
           return Promise.resolve();
         },
       });
@@ -251,7 +255,7 @@ limitations under the License.
       const showTabsCheckbox = valueOf('Show tabs', 'diffPreferences')
           .firstElementChild;
       showTabsCheckbox.checked = false;
-      element._handleShowTabsChanged();
+      element._handleDiffShowTabsChanged();
 
       assert.isTrue(element._diffPrefsChanged);
 
@@ -272,10 +276,10 @@ limitations under the License.
     test('columns input is hidden with fit to scsreen is selected', () => {
       assert.isFalse(element.$.columnsPref.hidden);
 
-      MockInteractions.tap(element.$.lineWrapping);
+      MockInteractions.tap(element.$.diffLineWrapping);
       assert.isTrue(element.$.columnsPref.hidden);
 
-      MockInteractions.tap(element.$.lineWrapping);
+      MockInteractions.tap(element.$.diffLineWrapping);
       assert.isFalse(element.$.columnsPref.hidden);
     });
 
@@ -381,6 +385,58 @@ limitations under the License.
       element.params = {};
       element.attached();
       assert.isTrue(element.$.emailEditor.loadData.calledOnce);
+    });
+
+    test('_handleSaveChangeTable', () => {
+      let newColumns = ['Owner', 'Project', 'Branch'];
+      element._localChangeTableColumns = newColumns.slice(0);
+      element._showNumber = false;
+      const cloneStub = sandbox.stub(element, '_cloneChangeTableColumns');
+      element._handleSaveChangeTable();
+      assert.isTrue(cloneStub.calledOnce);
+      assert.deepEqual(element.prefs.change_table, newColumns);
+      assert.isNotOk(element.prefs.legacycid_in_change_table);
+
+      newColumns = ['Size'];
+      element._localChangeTableColumns = newColumns;
+      element._showNumber = true;
+      element._handleSaveChangeTable();
+      assert.isTrue(cloneStub.calledTwice);
+      assert.deepEqual(element.prefs.change_table, newColumns);
+      assert.isTrue(element.prefs.legacycid_in_change_table);
+    });
+
+    suite('_getFilterDocsLink', () => {
+      test('with http: docs base URL', () => {
+        const base = 'http://example.com/';
+        const result = element._getFilterDocsLink(base);
+        assert.equal(result, 'http://example.com/user-notify.html');
+      });
+
+      test('with http: docs base URL without slash', () => {
+        const base = 'http://example.com';
+        const result = element._getFilterDocsLink(base);
+        assert.equal(result, 'http://example.com/user-notify.html');
+      });
+
+      test('with https: docs base URL', () => {
+        const base = 'https://example.com/';
+        const result = element._getFilterDocsLink(base);
+        assert.equal(result, 'https://example.com/user-notify.html');
+      });
+
+      test('without docs base URL', () => {
+        const result = element._getFilterDocsLink(null);
+        assert.equal(result, 'https://gerrit-review.googlesource.com/' +
+            'Documentation/user-notify.html');
+      });
+
+      test('ignores non HTTP links', () => {
+        const base = 'javascript://alert("evil");';
+        const result = element._getFilterDocsLink(base);
+        assert.equal(result, 'https://gerrit-review.googlesource.com/' +
+            'Documentation/user-notify.html');
+      });
     });
 
     suite('when email verification token is provided', () => {

@@ -38,6 +38,15 @@ limitations under the License.
         margin: 0;
         padding: 0;
       }
+      a {
+        color: var(--color-link);
+      }
+      input,
+      textarea,
+      select,
+      button {
+        font: inherit;
+      }
       body {
         line-height: 1;
       }
@@ -58,20 +67,38 @@ limitations under the License.
       }
       /* Other Shared Styles*/
       h1 {
-        font-size: 2em;
-        font-weight: bold;
+        font-size: 2rem;
+        font-family: var(--font-family-bold);
       }
       h2 {
-        font-size: 1.5em;
-        font-weight: bold;
+        font-size: 1.5rem;
+        font-family: var(--font-family-bold);
       }
       h3 {
         font-size: 1.17em;
-        font-weight: bold;
+        font-family: var(--font-family-bold);
+      }
+      iron-icon {
+        color: #757575;
+        --iron-icon-height: 20px;
+        --iron-icon-width: 20px;
       }
       /* Stopgap solution until we remove hidden$ attributes. */
       [hidden] {
         display: none !important;
+      }
+      .separator {
+        border-left: 1px solid rgba(0, 0, 0, .3);
+        height: 20px;
+        margin: 0 8px;
+
+      }
+      .separator.transparent {
+        border-color: transparent;
+      }
+      paper-toggle-button {
+        --paper-toggle-button-checked-bar-color: var(--color-link);
+        --paper-toggle-button-checked-button-color: var(--color-link);
       }
     </style>
   </template>

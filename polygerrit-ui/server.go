@@ -56,13 +56,21 @@ func main() {
 		http.Handle("/plugins/", http.StripPrefix("/plugins/",
 			http.FileServer(http.Dir(*plugins))))
 		log.Println("Local plugins from", *plugins)
+	} else {
+		http.HandleFunc("/plugins/", handleRESTProxy)
 	}
 	log.Println("Serving on port", *port)
 	log.Fatal(http.ListenAndServe(*port, &server{}))
 }
 
 func handleRESTProxy(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	if strings.HasSuffix(r.URL.Path, ".html") {
+		w.Header().Set("Content-Type", "text/html")
+	} else if strings.HasSuffix(r.URL.Path, ".css") {
+		w.Header().Set("Content-Type", "text/css")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	req := &http.Request{
 		Method: "GET",
 		URL: &url.URL{
@@ -122,6 +130,9 @@ func patchResponse(r *http.Request, res *http.Response) io.Reader {
 }
 
 func injectLocalPlugins(r io.Reader) io.Reader {
+	if len(*plugins) == 0 {
+		return r
+	}
 	// Skip escape prefix
 	io.CopyN(ioutil.Discard, r, 5)
 	dec := json.NewDecoder(r)
@@ -189,7 +200,7 @@ type server struct{}
 
 // Any path prefixes that should resolve to index.html.
 var (
-	fePaths    = []string{"/q/", "/c/", "/dashboard/"}
+	fePaths    = []string{"/q/", "/c/", "/p/", "/x/", "/dashboard/", "/admin/"}
 	issueNumRE = regexp.MustCompile(`^\/\d+\/?$`)
 )
 

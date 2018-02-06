@@ -24,8 +24,10 @@
      */
 
     properties: {
+      /** @type {{ revisions: Array }} */
       change: Object,
       patchNum: String,
+      /** @type {?} */
       config: Object,
 
       _schemes: {
@@ -42,6 +44,7 @@
     },
 
     behaviors: [
+      Gerrit.PatchSetBehavior,
       Gerrit.RESTClientBehavior,
     ],
 
@@ -63,10 +66,10 @@
 
     _computeDownloadCommands(change, patchNum, _selectedScheme) {
       let commandObj;
-      for (const rev in change.revisions) {
-        if (change.revisions[rev]._number === parseInt(patchNum, 10) &&
-            change.revisions[rev].fetch.hasOwnProperty(_selectedScheme)) {
-          commandObj = change.revisions[rev].fetch[_selectedScheme].commands;
+      for (const rev of Object.values(change.revisions || {})) {
+        if (this.patchNumEquals(rev._number, patchNum) &&
+            rev.fetch.hasOwnProperty(_selectedScheme)) {
+          commandObj = rev.fetch[_selectedScheme].commands;
           break;
         }
       }
@@ -81,28 +84,55 @@
       return commands;
     },
 
+    /**
+     * @param {!Object} change
+     * @param {number|string} patchNum
+     *
+     * @return {string}
+     */
     _computeZipDownloadLink(change, patchNum) {
       return this._computeDownloadLink(change, patchNum, true);
     },
 
+    /**
+     * @param {!Object} change
+     * @param {number|string} patchNum
+     *
+     * @return {string}
+     */
     _computeZipDownloadFilename(change, patchNum) {
       return this._computeDownloadFilename(change, patchNum, true);
     },
 
-    _computeDownloadLink(change, patchNum, zip) {
+    /**
+     * @param {!Object} change
+     * @param {number|string} patchNum
+     * @param {boolean=} opt_zip
+     *
+     * @return {string} Not sure why there was a mismatch
+     */
+    _computeDownloadLink(change, patchNum, opt_zip) {
       return this.changeBaseURL(change._number, patchNum) + '/patch?' +
-          (zip ? 'zip' : 'download');
+          (opt_zip ? 'zip' : 'download');
     },
 
-    _computeDownloadFilename(change, patchNum, zip) {
-      let shortRev;
+
+    /**
+     * @param {!Object} change
+     * @param {number|string} patchNum
+     * @param {boolean=} opt_zip
+     *
+     * @return {string}
+     */
+    _computeDownloadFilename(change, patchNum, opt_zip) {
+      let shortRev = '';
       for (const rev in change.revisions) {
-        if (change.revisions[rev]._number === parseInt(patchNum, 10)) {
+        if (this.patchNumEquals(change.revisions[rev]._number, patchNum)) {
           shortRev = rev.substr(0, 7);
           break;
         }
       }
-      return shortRev + '.diff.' + (zip ? 'zip' : 'base64');
+      return shortRev + '.diff.' + (opt_zip ? 'zip' : 'base64');
     },
 
     _computeArchiveDownloadLink(change, patchNum, format) {
@@ -112,7 +142,7 @@
 
     _computeSchemes(change, patchNum) {
       for (const rev of Object.values(change.revisions || {})) {
-        if (rev._number === parseInt(patchNum, 10)) {
+        if (this.patchNumEquals(rev._number, patchNum)) {
           const fetch = rev.fetch;
           if (fetch) {
             return Object.keys(fetch).sort();

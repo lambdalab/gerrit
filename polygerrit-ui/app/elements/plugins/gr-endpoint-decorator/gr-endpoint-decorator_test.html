@@ -22,34 +22,51 @@ limitations under the License.
 <script src="../../../bower_components/web-component-tester/browser.js"></script>
 <link rel="import" href="../../../test/common-test-setup.html"/>
 <link rel="import" href="gr-endpoint-decorator.html">
+<link rel="import" href="../gr-endpoint-param/gr-endpoint-param.html">
+
+<script>void(0);</script>
 
 <test-fixture id="basic">
   <template>
-    <gr-endpoint-decorator name="foo"></gr-endpoint-decorator>
+    <div>
+      <gr-endpoint-decorator name="first">
+        <gr-endpoint-param name="someparam" value="barbar"></gr-endpoint-param>
+      </gr-endpoint-decorator>
+      <gr-endpoint-decorator name="second">
+        <gr-endpoint-param name="someparam" value="foofoo"></gr-endpoint-param>
+      </gr-endpoint-decorator>
+      <gr-endpoint-decorator name="banana">
+        <gr-endpoint-param name="someParam" value="yes"></gr-endpoint-param>
+      </gr-endpoint-decorator>
+    </div>
   </template>
 </test-fixture>
 
 <script>
   suite('gr-endpoint-decorator', () => {
+    let container;
     let sandbox;
-    let element;
     let plugin;
+    let decorationHook;
+    let replacementHook;
 
     setup(done => {
       sandbox = sinon.sandbox.create();
-
-      // NB: Order is important.
-      Gerrit.install(p => {
-        plugin = p;
-        plugin.registerCustomComponent('foo', 'some-module');
-      }, '0.1', 'http://some/plugin/url.html');
-
-      sandbox.stub(Gerrit, 'awaitPluginsLoaded').returns(Promise.resolve());
-
-      element = fixture('basic');
-      sandbox.stub(element, '_initPluginDomHook');
-      sandbox.stub(element, 'importHref', (url, resolve) => { resolve(); });
-
+      stub('gr-endpoint-decorator', {
+        _import: sandbox.stub().returns(Promise.resolve()),
+      });
+      // Since _endpoints are global, must reset state.
+      Gerrit._endpoints = new GrPluginEndpoints();
+      container = fixture('basic');
+      Gerrit.install(p => plugin = p, '0.1', 'http://some/plugin/url.html');
+      hooks = [];
+      // Decoration
+      decorationHook = plugin.registerCustomComponent('first', 'some-module');
+      // Replacement
+      replacementHook = plugin.registerCustomComponent(
+          'second', 'other-module', {replace: true});
+      // Mimic all plugins loaded.
+      Gerrit._setPluginsCount(0);
       flush(done);
     });
 
@@ -57,14 +74,97 @@ limitations under the License.
       sandbox.restore();
     });
 
-    test('imports plugin-provided module', () => {
-      assert.isTrue(
-          element.importHref.calledWith(new URL('http://some/plugin/url.html')));
+    test('imports plugin-provided modules into endpoints', () => {
+      const endpoints =
+          Array.from(container.querySelectorAll('gr-endpoint-decorator'));
+      assert.equal(endpoints.length, 3);
+      endpoints.forEach(element => {
+        assert.isTrue(
+            element._import.calledWith(new URL('http://some/plugin/url.html')));
+      });
     });
 
-    test('inits plugin-provided dom hook', () => {
-      assert.isTrue(
-          element._initPluginDomHook.calledWith('some-module', plugin));
+    test('decoration', () => {
+      const element =
+          container.querySelector('gr-endpoint-decorator[name="first"]');
+      const module = Polymer.dom(element.root).children.find(
+          element => element.nodeName === 'SOME-MODULE');
+      assert.isOk(module);
+      assert.equal(module['someparam'], 'barbar');
+      return decorationHook.getLastAttached().then(element => {
+        assert.strictEqual(element, module);
+      }).then(() => {
+        element.remove();
+        assert.equal(decorationHook.getAllAttached().length, 0);
+      });
+    });
+
+    test('replacement', () => {
+      const element =
+          container.querySelector('gr-endpoint-decorator[name="second"]');
+      const module = Polymer.dom(element.root).children.find(
+          element => element.nodeName === 'OTHER-MODULE');
+      assert.isOk(module);
+      assert.equal(module['someparam'], 'foofoo');
+      return replacementHook.getLastAttached().then(element => {
+        assert.strictEqual(element, module);
+      }).then(() => {
+        element.remove();
+        assert.equal(replacementHook.getAllAttached().length, 0);
+      });
+    });
+
+    test('late registration', done => {
+      plugin.registerCustomComponent('banana', 'noob-noob');
+      flush(() => {
+        const element =
+            container.querySelector('gr-endpoint-decorator[name="banana"]');
+        const module = Polymer.dom(element.root).children.find(
+            element => element.nodeName === 'NOOB-NOOB');
+        assert.isOk(module);
+        done();
+      });
+    });
+
+    test('late param setup', done => {
+      const element =
+          container.querySelector('gr-endpoint-decorator[name="banana"]');
+      const param = Polymer.dom(element).querySelector('gr-endpoint-param');
+      param['value'] = undefined;
+      plugin.registerCustomComponent('banana', 'noob-noob');
+      flush(() => {
+        let module = Polymer.dom(element.root).children.find(
+            element => element.nodeName === 'NOOB-NOOB');
+        // Module waits for param to be defined.
+        assert.isNotOk(module);
+        const value = {abc: 'def'};
+        param.value = value;
+        flush(() => {
+          module = Polymer.dom(element.root).children.find(
+              element => element.nodeName === 'NOOB-NOOB');
+          assert.isOk(module);
+          assert.strictEqual(module['someParam'], value);
+          done();
+        });
+      });
+    });
+
+    test('param is bound', done => {
+      const element =
+          container.querySelector('gr-endpoint-decorator[name="banana"]');
+      const param = Polymer.dom(element).querySelector('gr-endpoint-param');
+      const value1 = {abc: 'def'};
+      const value2 = {def: 'abc'};
+      param.value = value1;
+      plugin.registerCustomComponent('banana', 'noob-noob');
+      flush(() => {
+        const module = Polymer.dom(element.root).children.find(
+            element => element.nodeName === 'NOOB-NOOB');
+        assert.strictEqual(module['someParam'], value1);
+        param.value = value2;
+        assert.strictEqual(module['someParam'], value2);
+        done();
+      });
     });
   });
 </script>

@@ -188,9 +188,10 @@ limitations under the License.
           {value: {ccsOnly: true}}));
     });
 
-    test('no show all reviewers button with 5 reviewers', () => {
+    test('no show all reviewers button with 6 reviewers', () => {
       const reviewers = [];
-      for (let i = 0; i < 5; i++) {
+      element.maxReviewersDisplayed = 5;
+      for (let i = 0; i < 6; i++) {
         reviewers.push(
           {email: i+'reviewer@google.com', name: 'reviewer-' + i});
       }
@@ -206,13 +207,62 @@ limitations under the License.
       };
       flushAsynchronousOperations();
       assert.equal(element._hiddenReviewerCount, 0);
+      assert.equal(element._displayedReviewers.length, 6);
+      assert.equal(element._reviewers.length, 6);
+      assert.isTrue(element.$$('.hiddenReviewers').hidden);
+    });
+
+    test('show all reviewers button with 7 reviewers', () => {
+      const reviewers = [];
+      element.maxReviewersDisplayed = 5;
+      for (let i = 0; i < 7; i++) {
+        reviewers.push(
+          {email: i+'reviewer@google.com', name: 'reviewer-' + i});
+      }
+      element.ccsOnly = true;
+
+      element.change = {
+        owner: {
+          _account_id: 1,
+        },
+        reviewers: {
+          CC: reviewers,
+        },
+      };
+      flushAsynchronousOperations();
+      assert.equal(element._hiddenReviewerCount, 2);
       assert.equal(element._displayedReviewers.length, 5);
-      assert.equal(element._reviewers.length, 5);
+      assert.equal(element._reviewers.length, 7);
+      assert.isFalse(element.$$('.hiddenReviewers').hidden);
+    });
+
+
+    test('no maxReviewersDisplayed', () => {
+      const reviewers = [];
+      for (let i = 0; i < 7; i++) {
+        reviewers.push(
+          {email: i+'reviewer@google.com', name: 'reviewer-' + i});
+      }
+      element.ccsOnly = true;
+
+      element.change = {
+        owner: {
+          _account_id: 1,
+        },
+        reviewers: {
+          CC: reviewers,
+        },
+      };
+      flushAsynchronousOperations();
+      assert.equal(element._hiddenReviewerCount, 0);
+      assert.equal(element._displayedReviewers.length, 7);
+      assert.equal(element._reviewers.length, 7);
       assert.isTrue(element.$$('.hiddenReviewers').hidden);
     });
 
     test('show all reviewers button', () => {
       const reviewers = [];
+      element.maxReviewersDisplayed = 5;
       for (let i = 0; i < 100; i++) {
         reviewers.push(
           {email: i+'reviewer@google.com', name: 'reviewer-' + i});
@@ -239,6 +289,58 @@ limitations under the License.
       assert.equal(element._displayedReviewers.length, 100);
       assert.equal(element._reviewers.length, 100);
       assert.isTrue(element.$$('.hiddenReviewers').hidden);
+    });
+
+    test('votable labels', () => {
+      const change = {
+        labels: {
+          Foo: {
+            all: [{_account_id: 7, permitted_voting_range: {max: 2}}],
+          },
+          Bar: {
+            all: [{_account_id: 1, permitted_voting_range: {max: 1}},
+                  {_account_id: 7, permitted_voting_range: {max: 1}}],
+          },
+          FooBar: {
+            all: [{_account_id: 7, permitted_voting_range: {max: 0}}],
+          },
+        },
+        permitted_labels: {
+          Foo: ['-1', ' 0', '+1', '+2'],
+          Bar: ['-1', ' 0', '+1', '+2'],
+          FooBar: ['-1', ' 0'],
+        },
+      };
+      assert.strictEqual(
+          element._computeReviewerTooltip({_account_id: 1}, change),
+          'Votable: Bar');
+      assert.strictEqual(
+          element._computeReviewerTooltip({_account_id: 7}, change),
+          'Votable: Foo: +2, Bar, FooBar');
+      assert.strictEqual(
+          element._computeReviewerTooltip({_account_id: 2}, change),
+          '');
+    });
+
+    test('fails gracefully when all is not included', () => {
+      const change = {
+        labels: {
+          Foo: {},
+          Bar: {},
+          FooBar: {},
+        },
+        permitted_labels: {
+          Foo: ['-1', ' 0', '+1', '+2'],
+          Bar: ['-1', ' 0', '+1', '+2'],
+          FooBar: ['-1', ' 0'],
+        },
+      };
+      assert.strictEqual(
+          element._computeReviewerTooltip({_account_id: 1}, change), '');
+      assert.strictEqual(
+          element._computeReviewerTooltip({_account_id: 7}, change), '');
+      assert.strictEqual(
+          element._computeReviewerTooltip({_account_id: 2}, change), '');
     });
   });
 </script>

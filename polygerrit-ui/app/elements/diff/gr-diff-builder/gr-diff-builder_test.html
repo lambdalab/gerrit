@@ -58,18 +58,27 @@ limitations under the License.
   suite('gr-diff-builder tests', () => {
     let element;
     let builder;
+    let sandbox;
+    const LINE_FEED_HTML = '<span class="style-scope gr-diff br"></span>';
 
     setup(() => {
+      sandbox = sinon.sandbox.create();
+      element = fixture('basic');
       stub('gr-rest-api-interface', {
         getLoggedIn() { return Promise.resolve(false); },
+        getProjectConfig() { return Promise.resolve({}); },
       });
       const prefs = {
         line_length: 10,
         show_tabs: true,
         tab_size: 4,
       };
-      builder = new GrDiffBuilder({content: []}, {left: [], right: []}, prefs);
+      const projectName = 'my-project';
+      builder = new GrDiffBuilder(
+          {content: []}, {left: [], right: []}, prefs, projectName);
     });
+
+    teardown(() => { sandbox.restore(); });
 
     test('context control buttons', () => {
       const section = {};
@@ -102,106 +111,139 @@ limitations under the License.
 
     test('newlines 1', () => {
       let text = 'abcdef';
-      assert.equal(builder._addNewlines(text, text), text);
+
+      assert.equal(builder._formatText(text, 4, 10).innerHTML, text);
       text = 'a'.repeat(20);
-      assert.equal(builder._addNewlines(text, text),
+      assert.equal(builder._formatText(text, 4, 10).innerHTML,
           'a'.repeat(10) +
-          GrDiffBuilder.LINE_FEED_HTML +
+          LINE_FEED_HTML +
           'a'.repeat(10));
     });
 
     test('newlines 2', () => {
       const text = '<span class="thumbsup">👍</span>';
-      const html =
-          '&lt;span class=&quot;thumbsup&quot;&gt;👍&lt;&#x2F;span&gt;';
-      assert.equal(builder._addNewlines(text, html),
+      assert.equal(builder._formatText(text, 4, 10).innerHTML,
           '&lt;span clas' +
-          GrDiffBuilder.LINE_FEED_HTML +
-          's=&quot;thumbsu' +
-          GrDiffBuilder.LINE_FEED_HTML +
-          'p&quot;&gt;👍&lt;&#x2F;spa' +
-          GrDiffBuilder.LINE_FEED_HTML +
-          'n&gt;');
+          LINE_FEED_HTML +
+          's="thumbsu' +
+          LINE_FEED_HTML +
+          'p"&gt;👍&lt;/span' +
+          LINE_FEED_HTML +
+          '&gt;');
     });
 
     test('newlines 3', () => {
       const text = '01234\t56789';
-      const html = '01234<span>\t</span>56789';
-      assert.equal(builder._addNewlines(text, html),
-          '01234<span>\t</span>5' +
-          GrDiffBuilder.LINE_FEED_HTML +
-          '6789');
+      assert.equal(builder._formatText(text, 4, 10).innerHTML,
+          '01234' + builder._getTabWrapper(3).outerHTML + '56' +
+          LINE_FEED_HTML +
+          '789');
     });
 
-    test('_addNewlines not called if line_wrapping is true', done => {
+    test('newlines 4', () => {
+      const text = '👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍';
+      assert.equal(builder._formatText(text, 4, 20).innerHTML,
+          '👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍' +
+          LINE_FEED_HTML +
+          '👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍' +
+          LINE_FEED_HTML +
+          '👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍');
+    });
+
+
+    test('line_length ignored if line_wrapping is true', () => {
       builder._prefs = {line_wrapping: true, tab_size: 4, line_length: 50};
-      const text = (new Array(52)).join('a');
+      const text = 'a'.repeat(51);
 
       const line = {text, highlights: []};
-      const newLineStub = sinon.stub(builder, '_addNewlines');
-      builder._createTextEl(line);
-      flush(() => {
-        assert.isFalse(newLineStub.called);
-        newLineStub.restore();
-        done();
-      });
+      const result = builder._createTextEl(line).firstChild.innerHTML;
+      assert.equal(result, text);
     });
 
-    test('_addNewlines called if line_wrapping is true and meets other ' +
-        'conditions', done => {
+    test('line_length applied if line_wrapping is false', () => {
       builder._prefs = {line_wrapping: false, tab_size: 4, line_length: 50};
-      const text = (new Array(52)).join('a');
+      const text = 'a'.repeat(51);
 
       const line = {text, highlights: []};
-      const newLineStub = sinon.stub(builder, '_addNewlines');
-      builder._createTextEl(line);
-
-      flush(() => {
-        assert.isTrue(newLineStub.called);
-        newLineStub.restore();
-        done();
-      });
+      const expected = 'a'.repeat(50) + LINE_FEED_HTML + 'a';
+      const result = builder._createTextEl(line).firstChild.innerHTML;
+      assert.equal(result, expected);
     });
 
     test('_createTextEl linewrap with tabs', () => {
-      const text = _.times(7, _.constant('\t')).join('') + '!';
+      const text = '\t'.repeat(7) + '!';
       const line = {text, highlights: []};
       const el = builder._createTextEl(line);
-      const tabEl = el.querySelector('.contentText > .br');
-      assert.isOk(tabEl);
+      assert.equal(el.innerText, text);
+      // With line length 10 and tab size 2, there should be a line break
+      // after every two tabs.
+      const newlineEl = el.querySelector('.contentText > .br');
+      assert.isOk(newlineEl);
       assert.equal(
           el.querySelector('.contentText .tab:nth-child(2)').nextSibling,
-          tabEl);
+          newlineEl);
     });
 
     test('text length with tabs and unicode', () => {
-      assert.equal(builder._textLength('12345', 4), 5);
-      assert.equal(builder._textLength('\t\t12', 4), 10);
-      assert.equal(builder._textLength('abc💢123', 4), 7);
+      function expectTextLength(text, tabSize, expected) {
+        // Formatting to |expected| columns should not introduce line breaks.
+        const result = builder._formatText(text, tabSize, expected);
+        assert.isNotOk(result.querySelector('.contentText > .br'),
+            `  Expected the result of: \n` +
+            `      _formatText(${text}', ${tabSize}, ${expected})\n` +
+            `  to not contain a br. But the actual result HTML was:\n` +
+            `      '${result.innerHTML}'\nwhereupon`);
 
-      assert.equal(builder._textLength('abc\t', 8), 8);
-      assert.equal(builder._textLength('abc\t\t', 10), 20);
-      assert.equal(builder._textLength('', 10), 0);
-      assert.equal(builder._textLength('', 10), 0);
-      assert.equal(builder._textLength('abc\tde', 10), 12);
-      assert.equal(builder._textLength('abc\tde\t', 10), 20);
-      assert.equal(builder._textLength('\t\t\t\t\t', 20), 100);
+        // Increasing the line limit should produce the same markup.
+        assert.equal(builder._formatText(text, tabSize, Infinity).innerHTML,
+            result.innerHTML);
+        assert.equal(builder._formatText(text, tabSize, expected + 1).innerHTML,
+            result.innerHTML);
+
+        // Decreasing the line limit should introduce line breaks.
+        if (expected > 0) {
+          const tooSmall = builder._formatText(text, tabSize, expected - 1);
+          assert.isOk(tooSmall.querySelector('.contentText > .br'),
+              `  Expected the result of: \n` +
+              `      _formatText(${text}', ${tabSize}, ${expected - 1})\n` +
+              `  to contain a br. But the actual result HTML was:\n` +
+              `      '${tooSmall.innerHTML}'\nwhereupon`);
+        }
+      }
+      expectTextLength('12345', 4, 5);
+      expectTextLength('\t\t12', 4, 10);
+      expectTextLength('abc💢123', 4, 7);
+      expectTextLength('abc\t', 8, 8);
+      expectTextLength('abc\t\t', 10, 20);
+      expectTextLength('', 10, 0);
+      expectTextLength('', 10, 0);
+      // 17 Thai combining chars.
+      expectTextLength('ก้้้้้้้้้้้้้้้้', 4, 17);
+      expectTextLength('abc\tde', 10, 12);
+      expectTextLength('abc\tde\t', 10, 20);
+      expectTextLength('\t\t\t\t\t', 20, 100);
     });
 
     test('tab wrapper insertion', () => {
       const html = 'abc\tdef';
-      const wrapper = builder._getTabWrapper(
-          builder._prefs.tab_size - 3,
-          builder._prefs.show_tabs);
+      const tabSize = builder._prefs.tab_size;
+      const wrapper = builder._getTabWrapper(tabSize - 3);
       assert.ok(wrapper);
-      assert.isAbove(wrapper.length, 0);
-      assert.equal(builder._addTabWrappers(html, builder._prefs.tab_size),
-          'abc' + wrapper + 'def');
-      assert.throws(builder._getTabWrapper.bind(
-          builder,
-          // using \x3c instead of < in string so gjslint can parse
-          '">\x3cimg src="/" onerror="alert(1);">\x3cspan class="',
-          true));
+      assert.equal(wrapper.innerText, '\t');
+      assert.equal(
+          builder._formatText(html, tabSize, Infinity).innerHTML,
+          'abc' + wrapper.outerHTML + 'def');
+    });
+
+    test('tab wrapper style', () => {
+      const pattern = new RegExp('^<span class="style-scope gr-diff tab" '
+          + 'style="(?:-moz-)?tab-size: (\\d+);">\\t<\\/span>$');
+
+      for (const size of [1, 3, 8, 55]) {
+        const html = builder._getTabWrapper(size).outerHTML;
+        expect(html).to.match(pattern);
+        assert.equal(html.match(pattern)[1], size);
+      }
     });
 
     test('comments', () => {
@@ -265,7 +307,7 @@ limitations under the License.
         assert.equal(threadGroupEl.patchForNewThreads, patchNum);
         assert.equal(threadGroupEl.path, '/path/to/foo');
         assert.equal(threadGroupEl.isOnParent, isOnParent);
-        assert.deepEqual(threadGroupEl.projectConfig, {foo: 'bar'});
+        assert.deepEqual(threadGroupEl.projectName, 'my-project');
         assert.deepEqual(threadGroupEl.comments, comments);
       }
 
@@ -309,6 +351,49 @@ limitations under the License.
       line.afterNumber = 5;
       threadGroupEl = builder._commentThreadGroupForLine(line);
       checkThreadGroupProps(threadGroupEl, '3', false, [l3, r5]);
+    });
+
+
+    test('_handlePreferenceError called with invalid preference', () => {
+      sandbox.stub(element, '_handlePreferenceError');
+      const prefs = {tab_size: 0};
+      element._getDiffBuilder(element.diff, element.comments, prefs);
+      assert.isTrue(element._handlePreferenceError.lastCall
+          .calledWithExactly('tab size'));
+    });
+
+    test('_handlePreferenceError triggers alert and javascript error', () => {
+      const errorStub = sinon.stub();
+      element.addEventListener('show-alert', errorStub);
+      assert.throws(element._handlePreferenceError.bind(element, 'tab size'));
+      assert.equal(errorStub.lastCall.args[0].detail.message,
+          `The value of the 'tab size' user preference is invalid. ` +
+        `Fix in diff preferences`);
+    });
+
+    test('_getKeyLocations', () => {
+      assert.deepEqual(element._getKeyLocations({left: [], right: []}, null),
+          {left: {}, right: {}});
+      const comments = {
+        left: [{line: 123}, {}],
+        right: [{line: 456}],
+      };
+      assert.deepEqual(element._getKeyLocations(comments, null), {
+        left: {FILE: true, 123: true},
+        right: {456: true},
+      });
+
+      const lineOfInterest = {number: 789, leftSide: true};
+      assert.deepEqual(element._getKeyLocations(comments, lineOfInterest), {
+        left: {FILE: true, 123: true, 789: true},
+        right: {456: true},
+      });
+
+      delete lineOfInterest.leftSide;
+      assert.deepEqual(element._getKeyLocations(comments, lineOfInterest), {
+        left: {FILE: true, 123: true},
+        right: {456: true, 789: true},
+      });
     });
 
     suite('_isTotal', () => {
@@ -355,13 +440,9 @@ limitations under the License.
       setup(() => {
         el = fixture('div-with-text');
         str = el.textContent;
-        annotateElementSpy = sinon.spy(GrAnnotation, 'annotateElement');
+        annotateElementSpy = sandbox.spy(GrAnnotation, 'annotateElement');
         layer = document.createElement('gr-diff-builder')
             ._createIntralineLayer();
-      });
-
-      teardown(() => {
-        annotateElementSpy.restore();
       });
 
       test('annotate no highlights', () => {
@@ -510,19 +591,13 @@ limitations under the License.
     });
 
     suite('tab indicators', () => {
-      let sandbox;
       let element;
       let layer;
 
       setup(() => {
-        sandbox = sinon.sandbox.create();
         element = fixture('basic');
         element._showTabs = true;
         layer = element._createTabIndicatorLayer();
-      });
-
-      teardown(() => {
-        sandbox.restore();
       });
 
       test('does nothing with empty line', () => {
@@ -626,20 +701,41 @@ limitations under the License.
       });
     });
 
+    suite('layers from plugins', () => {
+      let element;
+      let initialLayersCount;
+
+      setup(() => {
+        element = fixture('basic');
+        element._showTrailingWhitespace = true;
+        initialLayersCount = element._layers.length;
+      });
+
+      test('no plugin layers', () => {
+        const getDiffLayersStub = sinon.stub(element.$.jsAPI, 'getDiffLayers')
+                                       .returns([]);
+        element.attached();
+        assert.isTrue(getDiffLayersStub.called);
+        assert.equal(element._layers.length, initialLayersCount);
+      });
+
+      test('with plugin layers', () => {
+        const getDiffLayersStub = sinon.stub(element.$.jsAPI, 'getDiffLayers')
+                                       .returns([{}, {}]);
+        element.attached();
+        assert.isTrue(getDiffLayersStub.called);
+        assert.equal(element._layers.length, initialLayersCount+2);
+      });
+    });
+
     suite('trailing whitespace', () => {
-      let sandbox;
       let element;
       let layer;
 
       setup(() => {
-        sandbox = sinon.sandbox.create();
         element = fixture('basic');
         element._showTrailingWhitespace = true;
         layer = element._createTrailingWhitespaceLayer();
-      });
-
-      teardown(() => {
-        sandbox.restore();
       });
 
       test('does nothing with empty line', () => {
@@ -727,13 +823,68 @@ limitations under the License.
       });
     });
 
+    suite('rendering text, images and binary files', () => {
+      let processStub;
+      let comments;
+      let prefs;
+      let content;
+
+      setup(() => {
+        element = fixture('basic');
+        element.viewMode = 'SIDE_BY_SIDE';
+        processStub = sandbox.stub(element.$.processor, 'process')
+            .returns(Promise.resolve());
+        sandbox.stub(element, '_anyLineTooLong').returns(true);
+        comments = {left: [], right: []};
+        prefs = {
+          line_length: 10,
+          show_tabs: true,
+          tab_size: 4,
+          context: -1,
+          syntax_highlighting: true,
+        };
+        content = [{
+          a: ['all work and no play make andybons a dull boy'],
+          b: ['elgoog elgoog elgoog'],
+        }, {
+          ab: [
+            'Non eram nescius, Brute, cum, quae summis ingeniis ',
+            'exquisitaque doctrina philosophi Graeco sermone tractavissent',
+          ],
+        }];
+      });
+
+      test('text', () => {
+        element.diff = {content};
+        return element.render(comments, prefs).then(() => {
+          assert.isTrue(processStub.calledOnce);
+          assert.isFalse(processStub.lastCall.args[1]);
+        });
+      });
+
+      test('image', () => {
+        element.diff = {content, binary: true};
+        element.isImageDiff = true;
+        return element.render(comments, prefs).then(() => {
+          assert.isTrue(processStub.calledOnce);
+          assert.isTrue(processStub.lastCall.args[1]);
+        });
+      });
+
+      test('binary', () => {
+        element.diff = {content, binary: true};
+        return element.render(comments, prefs).then(() => {
+          assert.isTrue(processStub.calledOnce);
+          assert.isTrue(processStub.lastCall.args[1]);
+        });
+      });
+    });
+
     suite('rendering', () => {
       let content;
       let outputEl;
-      let sandbox;
 
       setup(done => {
-        sandbox = sinon.sandbox.create();
         const prefs = {
           line_length: 10,
           show_tabs: true,
@@ -761,7 +912,7 @@ limitations under the License.
         outputEl = element.queryEffectiveChildren('#diffTable');
         sandbox.stub(element, '_getDiffBuilder', () => {
           const builder = new GrDiffBuilder(
-              {content}, {left: [], right: []}, prefs, outputEl);
+              {content}, {left: [], right: []}, prefs, 'my-project', outputEl);
           sandbox.stub(builder, 'addColumns');
           builder.buildSectionElement = function(group) {
             const section = document.createElement('stub');
@@ -774,10 +925,6 @@ limitations under the License.
         });
         element.diff = {content};
         element.render({left: [], right: []}, prefs).then(done);
-      });
-
-      teardown(() => {
-        sandbox.restore();
       });
 
       test('reporting', done => {
@@ -825,7 +972,7 @@ limitations under the License.
       });
 
       test('render-start and render are fired', done => {
-        const dispatchEventStub = sinon.stub(element, 'dispatchEvent');
+        const dispatchEventStub = sandbox.stub(element, 'dispatchEvent');
         element.render({left: [], right: []}, {}).then(() => {
           const firedEventTypes = dispatchEventStub.getCalls()
               .map(c => { return c.args[0].type; });
@@ -926,7 +1073,7 @@ limitations under the License.
       });
 
       test('_renderContentByRange', () => {
-        const spy = sinon.spy(builder, '_createTextEl');
+        const spy = sandbox.spy(builder, '_createTextEl');
         const start = 9;
         const end = 14;
         const count = end - start + 1;
@@ -937,8 +1084,29 @@ limitations under the License.
         spy.getCalls().forEach((call, i) => {
           assert.equal(call.args[0].beforeNumber, start + i);
         });
+      });
 
-        spy.restore();
+      test('_renderContentByRange notexistent elements', () => {
+        const spy = sandbox.spy(builder, '_createTextEl');
+
+        sandbox.stub(builder, 'findLinesByRange',
+            (s, e, d, lines, elements) => {
+              // Add a line and a corresponding element.
+              lines.push(new GrDiffLine(GrDiffLine.Type.BOTH));
+              const parEl = document.createElement('div');
+              const el = document.createElement('div');
+              parEl.appendChild(el);
+              elements.push(el);
+
+              // Add 2 lines without corresponding elements.
+              lines.push(new GrDiffLine(GrDiffLine.Type.BOTH));
+              lines.push(new GrDiffLine(GrDiffLine.Type.BOTH));
+            });
+
+        builder._renderContentByRange(1, 10, 'left');
+        // Should be called only once because only one line had a corresponding
+        // element.
+        assert.equal(spy.callCount, 1);
       });
 
       test('_getNextContentOnSide side-by-side left', () => {
@@ -1005,21 +1173,69 @@ limitations under the License.
         });
       });
 
-      test('_escapeHTML', () => {
+      test('escaping HTML', () => {
         let input = '<script>alert("XSS");<' + '/script>';
-        let expected = '&lt;script&gt;alert(&quot;XSS&quot;);' +
-            '&lt;&#x2F;script&gt;';
-        let result = GrDiffBuilder.prototype._escapeHTML(input);
+        let expected = '&lt;script&gt;alert("XSS");&lt;/script&gt;';
+        let result = builder._formatText(input, 1, Infinity).innerHTML;
         assert.equal(result, expected);
 
         input = '& < > " \' / `';
-
-        // \u0026 is an ampersand. This is being used here instead of &
-        // because of the gjslinter.
-        expected = '\u0026amp; \u0026lt; \u0026gt; \u0026quot;' +
-          ' \u0026#39; \u0026#x2F; \u0026#96;';
-        result = GrDiffBuilder.prototype._escapeHTML(input);
+        expected = '&amp; &lt; &gt; " \' / `';
+        result = builder._formatText(input, 1, Infinity).innerHTML;
         assert.equal(result, expected);
+      });
+    });
+
+    suite('blame', () => {
+      let mockBlame;
+
+      setup(() => {
+        mockBlame = [
+          {id: 'commit 1', ranges: [{start: 1, end: 2}, {start: 10, end: 16}]},
+          {id: 'commit 2', ranges: [{start: 4, end: 10}, {start: 17, end: 32}]},
+        ];
+      });
+
+      test('setBlame attempts to render each blamed line', () => {
+        const getBlameStub = sandbox.stub(builder, '_getBlameByLineNum')
+            .returns(null);
+        builder.setBlame(mockBlame);
+        assert.equal(getBlameStub.callCount, 32);
+      });
+
+      test('_getBlameCommitForBaseLine', () => {
+        builder.setBlame(mockBlame);
+        assert.isOk(builder._getBlameCommitForBaseLine(1));
+        assert.equal(builder._getBlameCommitForBaseLine(1).id, 'commit 1');
+
+        assert.isOk(builder._getBlameCommitForBaseLine(11));
+        assert.equal(builder._getBlameCommitForBaseLine(11).id, 'commit 1');
+
+        assert.isOk(builder._getBlameCommitForBaseLine(32));
+        assert.equal(builder._getBlameCommitForBaseLine(32).id, 'commit 2');
+
+        assert.isNull(builder._getBlameCommitForBaseLine(33));
+      });
+
+      test('_getBlameCommitForBaseLine w/o blame returns null', () => {
+        assert.isNull(builder._getBlameCommitForBaseLine(1));
+        assert.isNull(builder._getBlameCommitForBaseLine(11));
+        assert.isNull(builder._getBlameCommitForBaseLine(31));
+      });
+
+      test('_createBlameCell', () => {
+        const mocbBlameCell = document.createElement('span');
+        const getBlameStub = sinon.stub(builder, '_getBlameForBaseLine')
+            .returns(mocbBlameCell);
+        const line = new GrDiffLine(GrDiffLine.Type.BOTH);
+        line.beforeNumber = 3;
+        line.afterNumber = 5;
+
+        const result = builder._createBlameCell(line);
+
+        assert.isTrue(getBlameStub.calledWithExactly(3));
+        assert.equal(result.getAttribute('data-line-number'), '3');
+        assert.equal(result.firstChild, mocbBlameCell);
       });
     });
   });

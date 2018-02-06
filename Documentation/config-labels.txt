@@ -11,11 +11,10 @@ groups within projects, enabling functionality for that group's members.
 [[label_Code-Review]]
 == Label: Code-Review
 
-The code review label is the second of two default labels that is
-configured upon the creation of a Gerrit instance.  It may have any
-meaning the project desires.  It was originally invented by the Android
-Open Source Project to mean 'I read the code and it seems reasonably
-correct'.
+The Code-Review label is configured upon the creation of a Gerrit
+instance.  It may have any meaning the project desires.  It was
+originally invented by the Android Open Source Project to mean
+'I read the code and it seems reasonably correct'.
 
 The range of values is:
 
@@ -87,15 +86,18 @@ The Verified label was originally invented by the Android Open Source
 Project to mean 'compiles, passes basic unit tests'.  Some CI tools
 expect to use the Verified label to vote on a change after running.
 
-Administrators can install the Verified label by adding the following
-text to `project.config`:
+During site initialization the administrator may have chosen to
+configure the default Verified label for all projects.  In case it is
+desired to configure it at a later time, administrators can do this by
+adding the following to `project.config` in `All-Projects`:
 
 ----
   [label "Verified"]
       function = MaxWithBlock
       value = -1 Fails
-      value =  0 No score
+      value = 0 No score
       value = +1 Verified
+      copyAllScoresIfNoCodeChange = true
 ----
 
 The range of values is:
@@ -164,9 +166,7 @@ name as in the parent.
 [[label_layout]]
 === Layout
 
-Labels are laid out in the order they are specified in project.config,
-with inherited labels appearing first, providing some layout control to
-the administrator.
+Labels are laid out in alphabetical order.
 
 [[label_name]]
 === `label.Label-Name`
@@ -315,8 +315,8 @@ set and the same code delta as the previous patch set. This means only
 the commit message is different. This can be used to enable sticky
 approvals on labels that only depend on the code, reducing turn-around
 if only the commit message is changed prior to submitting a change.
-For the Verified label that is installed by the link:pgm-init.html[init]
-site program this is enabled by default.
+For the Verified label that is optionally installed by the
+link:pgm-init.html[init] site program this is enabled by default.
 
 Defaults to false.
 
@@ -377,7 +377,7 @@ but has different names/labels:
   [label "Copyright-Check"]
       function = MaxWithBlock
       value = -1 Do not have copyright
-      value =  0 No score
+      value = 0 No score
       value = +1 Copyright clear
 ----
 
@@ -399,7 +399,7 @@ user permissions.  Assume the configuration below.
       value = -3 Ohh, hell no!
       value = -2 Hmm, I'm not a fan
       value = -1 I'm not sure I like this
-      value =  0 No score
+      value = 0 No score
       value = +1 I like, but need another to like it as well
       value = +2 Hmm, this is pretty nice
       value = +3 Ohh, hell yes!

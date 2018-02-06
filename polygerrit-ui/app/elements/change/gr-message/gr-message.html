@@ -15,7 +15,7 @@ limitations under the License.
 -->
 
 <link rel="import" href="../../../bower_components/polymer/polymer.html">
-<link rel="import" href="../../shared/gr-account-link/gr-account-link.html">
+<link rel="import" href="../../shared/gr-account-label/gr-account-label.html">
 <link rel="import" href="../../shared/gr-button/gr-button.html">
 <link rel="import" href="../../shared/gr-date-formatter/gr-date-formatter.html">
 <link rel="import" href="../../shared/gr-formatted-text/gr-formatted-text.html">
@@ -28,7 +28,7 @@ limitations under the License.
   <template>
     <style include="shared-styles">
       :host {
-        border-top: 1px solid #ddd;
+        border-bottom: 1px solid #ddd;
         display: block;
         position: relative;
         cursor: pointer;
@@ -76,7 +76,7 @@ limitations under the License.
         width: 2.5em;
       }
       .name {
-        font-weight: bold;
+        font-family: var(--font-family-bold);
       }
       .message {
         --gr-formatted-text-prose-max-width: 80ch;
@@ -92,6 +92,9 @@ limitations under the License.
       .collapsed .updateCategory,
       gr-account-chip {
         display: inline;
+      }
+      gr-button {
+        margin: 0 -4px;
       }
       .collapsed gr-comment-list,
       .collapsed .replyContainer,
@@ -126,13 +129,18 @@ limitations under the License.
         top: 10px;
       }
       .replyContainer {
-        padding: .5em 0 1em;
+        padding: .5em 0 0 0;
       }
       .positiveVote {
-        box-shadow: inset 0 4.4em #d4ffd4;
+        box-shadow: inset 0 3.8em #d4ffd4;
       }
       .negativeVote {
-        box-shadow: inset 0 4.4em #ffd4d4;
+        box-shadow: inset 0 3.8em #ffd4d4;
+      }
+      gr-account-label {
+        --gr-account-label-text-style: {
+          font-family: var(--font-family-bold);
+        };
       }
     </style>
     <div class$="[[_computeClass(_expanded, showAvatar, message)]]">
@@ -143,20 +151,27 @@ limitations under the License.
             <span class="name">[[message.real_author.name]]</span>
             on behalf of
           </span>
-          <span class="name">[[author.name]]</span>
+          <gr-account-label
+              account="[[author]]"
+              hide-avatar></gr-account-label>
         </div>
         <template is="dom-if" if="[[message.message]]">
           <div class="content">
             <div class="message hideOnOpen">[[message.message]]</div>
             <gr-formatted-text
+                no-trailing-margin
                 class="message hideOnCollapsed"
                 content="[[message.message]]"
-                config="[[projectConfig.commentlinks]]"></gr-formatted-text>
+                config="[[_projectConfig.commentlinks]]"></gr-formatted-text>
+            <div class="replyContainer" hidden$="[[!showReplyButton]]" hidden>
+              <gr-button link small on-tap="_handleReplyTap">Reply</gr-button>
+            </div>
             <gr-comment-list
                 comments="[[comments]]"
                 change-num="[[changeNum]]"
                 patch-num="[[message._revision_number]]"
-                project-config="[[projectConfig]]"></gr-comment-list>
+                project-name="[[projectName]]"
+                project-config="[[_projectConfig]]"></gr-comment-list>
           </div>
         </template>
         <template is="dom-if" if="[[_computeIsReviewerUpdate(message)]]">
@@ -177,6 +192,7 @@ limitations under the License.
           <span class="date">
             <gr-date-formatter
                 has-tooltip
+                show-date-and-time
                 date-str="[[message.date]]"></gr-date-formatter>
           </span>
         </template>
@@ -184,12 +200,10 @@ limitations under the License.
           <a class="date" href$="[[_computeMessageHash(message)]]" on-tap="_handleLinkTap">
             <gr-date-formatter
                 has-tooltip
+                show-date-and-time
                 date-str="[[message.date]]"></gr-date-formatter>
           </a>
         </template>
-      </div>
-      <div class="replyContainer" hidden$="[[!showReplyButton]]" hidden>
-        <gr-button small on-tap="_handleReplyTap">Reply</gr-button>
       </div>
     </div>
     <gr-rest-api-interface id="restAPI"></gr-rest-api-interface>

@@ -20,6 +20,11 @@
     properties: {
       comments: Object,
       loggedIn: Boolean,
+      /**
+       * querySelector can return null, so needs to be nullable.
+       *
+       * @type {?HTMLElement}
+       * */
       _cachedDiffBuilder: Object,
       isAttached: Boolean,
     },
@@ -94,6 +99,48 @@
       }
     },
 
+    /**
+     * Get current normalized selection.
+     * Merges multiple ranges, accounts for triple click, accounts for
+     * syntax highligh, convert native DOM Range objects to Gerrit concepts
+     * (line, side, etc).
+     * @return {({
+     *   start: {
+     *     node: Node,
+     *     side: string,
+     *     line: Number,
+     *     column: Number
+     *   },
+     *   end: {
+     *     node: Node,
+     *     side: string,
+     *     line: Number,
+     *     column: Number
+     *   }
+     * })|null|!Object}
+     */
+    _getNormalizedRange() {
+      const selection = window.getSelection();
+      const rangeCount = selection.rangeCount;
+      if (rangeCount === 0) {
+        return null;
+      } else if (rangeCount === 1) {
+        return this._normalizeRange(selection.getRangeAt(0));
+      } else {
+        const startRange = this._normalizeRange(selection.getRangeAt(0));
+        const endRange = this._normalizeRange(
+            selection.getRangeAt(rangeCount - 1));
+        return {
+          start: startRange.start,
+          end: endRange.end,
+        };
+      }
+    },
+
+    /**
+     * Normalize a specific DOM Range.
+     * @return {!Object} fixed normalized range
+     */
     _normalizeRange(domRange) {
       const range = GrRangeNormalizer.normalize(domRange);
       return this._fixTripleClickSelection({
@@ -132,13 +179,14 @@
           end.column === 0 &&
           end.line === start.line &&
           end.side != start.side;
-      if (endsOnOtherSideStart || endsAtOtherSideLineNum) {
+      const content = domRange.cloneContents().querySelector('.contentText');
+      const lineLength = content && this._getLength(content) || 0;
+      if (lineLength && endsOnOtherSideStart || endsAtOtherSideLineNum) {
         // Selection ends at the beginning of the next line.
         // Move the selection to the end of the previous line.
         range.end = {
           node: start.node,
-          column: this._getLength(
-              domRange.cloneContents().querySelector('.contentText')),
+          column: lineLength,
           side: start.side,
           line: start.line,
         };
@@ -153,12 +201,12 @@
      *
      * @param {Node} node td.content child
      * @param {number} offset offset within node
-     * @return {{
+     * @return {({
      *   node: Node,
      *   side: string,
      *   line: Number,
      *   column: Number
-     * }}
+     * }|undefined)}
      */
     _normalizeSelectionSide(node, offset) {
       let column;
@@ -203,16 +251,29 @@
       };
     },
 
+    /**
+     * The only line in which add a comment tooltip is cut off is the first
+     * line. Even if there is a collapsed section, The first visible line is
+     * in the position where the second line would have been, if not for the
+     * collapsed section, so don't need to worry about this case for
+     * positioning the tooltip.
+     */
+    _positionActionBox(actionBox, startLine, range) {
+      if (startLine > 1) {
+        actionBox.placeAbove(range);
+        return;
+      }
+      actionBox.positionBelow = true;
+      actionBox.placeBelow(range);
+    },
+
     _handleSelection() {
-      const selection = window.getSelection();
-      if (selection.rangeCount != 1) {
+      const normalizedRange = this._getNormalizedRange();
+      if (!normalizedRange) {
         return;
       }
-      const range = selection.getRangeAt(0);
-      if (range.collapsed) {
-        return;
-      }
-      const normalizedRange = this._normalizeRange(range);
+      const domRange = window.getSelection().getRangeAt(0);
+      /** @type {?} */
       const start = normalizedRange.start;
       if (!start) {
         return;
@@ -230,7 +291,8 @@
       // TODO (viktard): Drop empty first and last lines from selection.
 
       const actionBox = document.createElement('gr-selection-action-box');
-      Polymer.dom(this.root).appendChild(actionBox);
+      const root = Polymer.dom(this.root);
+      root.insertBefore(actionBox, root.firstElementChild);
       actionBox.range = {
         startLine: start.line,
         startChar: start.column,
@@ -239,15 +301,18 @@
       };
       actionBox.side = start.side;
       if (start.line === end.line) {
-        actionBox.placeAbove(range);
+        this._positionActionBox(actionBox, start.line, domRange);
       } else if (start.node instanceof Text) {
-        actionBox.placeAbove(start.node.splitText(start.column));
+        if (start.column) {
+          this._positionActionBox(actionBox, start.line,
+              start.node.splitText(start.column));
+        }
         start.node.parentElement.normalize(); // Undo splitText from above.
       } else if (start.node.classList.contains('content') &&
-                 start.node.firstChild) {
-        actionBox.placeAbove(start.node.firstChild);
+          start.node.firstChild) {
+        this._positionActionBox(actionBox, start.line, start.node.firstChild);
       } else {
-        actionBox.placeAbove(start.node);
+        this._positionActionBox(actionBox, start.line, start.node);
       }
     },
 
@@ -286,7 +351,7 @@
      * Traverse Element from right to left, call callback for each node.
      * Stops if callback returns true.
      *
-     * @param {!Node} startNode
+     * @param {!Element} startNode
      * @param {function(Node):boolean} callback
      * @param {Object=} opt_flags If flags.left is true, traverse left.
      */
@@ -311,7 +376,7 @@
      * Get length of a node. If the node is a content node, then only give the
      * length of its .contentText child.
      *
-     * @param {!Node} node
+     * @param {?Element} node this is sometimes passed as null.
      * @return {number}
      */
     _getLength(node) {

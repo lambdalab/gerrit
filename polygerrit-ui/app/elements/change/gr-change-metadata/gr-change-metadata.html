@@ -14,22 +14,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<link rel="import" href="../../../behaviors/rest-client-behavior/rest-client-behavior.html">
 <link rel="import" href="../../../bower_components/polymer/polymer.html">
-<link rel="import" href="../../plugins/gr-external-style/gr-external-style.html">
+<link rel="import" href="../../../behaviors/rest-client-behavior/rest-client-behavior.html">
+<link rel="import" href="../../../styles/shared-styles.html">
+<link rel="import" href="../../../styles/gr-voting-styles.html">
 <link rel="import" href="../../core/gr-navigation/gr-navigation.html">
+<link rel="import" href="../../plugins/gr-endpoint-decorator/gr-endpoint-decorator.html">
+<link rel="import" href="../../plugins/gr-endpoint-param/gr-endpoint-param.html">
+<link rel="import" href="../../plugins/gr-external-style/gr-external-style.html">
 <link rel="import" href="../../shared/gr-account-chip/gr-account-chip.html">
+<link rel="import" href="../../shared/gr-account-link/gr-account-link.html">
 <link rel="import" href="../../shared/gr-date-formatter/gr-date-formatter.html">
 <link rel="import" href="../../shared/gr-editable-label/gr-editable-label.html">
 <link rel="import" href="../../shared/gr-label/gr-label.html">
 <link rel="import" href="../../shared/gr-linked-chip/gr-linked-chip.html">
+<link rel="import" href="../../shared/gr-tooltip-content/gr-tooltip-content.html">
 <link rel="import" href="../../shared/gr-rest-api-interface/gr-rest-api-interface.html">
+<link rel="import" href="../gr-commit-info/gr-commit-info.html">
 <link rel="import" href="../gr-reviewer-list/gr-reviewer-list.html">
-<link rel="import" href="../../../styles/shared-styles.html">
 
 <dom-module id="gr-change-metadata">
   <template>
+    <style include="gr-voting-styles"></style>
     <style include="shared-styles">
+      .hideDisplay {
+        display: none;
+      }
       section:not(:first-of-type) {
         margin-top: 1em;
       }
@@ -39,7 +49,7 @@ limitations under the License.
       }
       .title {
         color: #666;
-        font-weight: bold;
+        font-family: var(--font-family-bold);
         max-width: 20em;
         word-break: break-word;
       }
@@ -56,21 +66,31 @@ limitations under the License.
       .labelValueContainer:not(:first-of-type) {
         margin-top: .25em;
       }
-      .labelValueContainer .approved,
-      .labelValueContainer .notApproved {
+      .labelValueContainer span {
+        align-items: baseline;
         display: inline-flex;
-        padding: .1em .3em;
+      }
+      .labelValueContainer {
         border-radius: 3px;
+        padding: .1em .3em;
       }
-      .labelValue {
-        display: inline-block;
-        padding-right: .3em;
+      gr-label {
+        margin-right: .3em;
+        padding: .05em .85em;
+        text-align: center;
+        @apply --vote-chip-styles;
       }
-      .approved {
-        background-color: #d4ffd4;
+      .max {
+        background-color: var(--vote-color-max);
       }
-      .notApproved {
-        background-color: #ffd4d4;
+      .min {
+        background-color: var(--vote-color-min);
+      }
+      .positive {
+        background-color: var(--vote-color-positive);
+      }
+      .negative {
+        background-color: var(--vote-color-negative);
       }
       .labelStatus .value {
         max-width: 9em;
@@ -87,19 +107,41 @@ limitations under the License.
 
       /* CSS Mixins should be applied last. */
       section.assignee {
-        @apply(--change-metadata-assignee);
+        @apply --change-metadata-assignee;
       }
       section.labelStatus {
-        @apply(--change-metadata-label-status);
+        @apply --change-metadata-label-status;
       }
       section.strategy {
-        @apply(--change-metadata-strategy);
+        @apply --change-metadata-strategy;
       }
       section.topic {
-        @apply(--change-metadata-topic);
+        @apply --change-metadata-topic;
+      }
+      gr-account-chip[disabled],
+      gr-linked-chip[disabled] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .hashtagChip {
+        margin-bottom: .5em;
       }
       #externalStyle {
         display: block;
+      }
+      .parentList.merge {
+        list-style-type: decimal;
+        padding-left: 1em;
+      }
+      .parentList gr-commit-info {
+        display: inline-block;
+      }
+      #parentNotCurrentMessage {
+        display: none;
+      }
+      .parentList.notCurrent.nonMerge #parentNotCurrentMessage {
+        --arrow-color: #ffa62f;
+        display: inline-block;
       }
       @media screen and (max-width: 50em), screen and (min-width: 75em) {
         :host {
@@ -115,7 +157,6 @@ limitations under the License.
         .title,
         .value {
           display: table-cell;
-          vertical-align: top;
         }
         .title {
           padding-right: .5em;
@@ -135,6 +176,13 @@ limitations under the License.
         <span class="title">Owner</span>
         <span class="value">
           <gr-account-link account="[[change.owner]]"></gr-account-link>
+        </span>
+      </section>
+      <section class$="[[_computeShowUploaderHide(change)]]">
+        <span class="title">Uploader</span>
+        <span class="value">
+          <gr-account-link
+              account="[[_computeShowUploader(change)]]"></gr-account-link>
         </span>
       </section>
       <section class="assignee">
@@ -166,7 +214,8 @@ limitations under the License.
             <gr-reviewer-list
                 change="{{change}}"
                 mutable="[[mutable]]"
-                ccs-only></gr-reviewer-list>
+                ccs-only
+                max-reviewers-displayed="5"></gr-reviewer-list>
           </span>
         </section>
       </template>
@@ -192,19 +241,46 @@ limitations under the License.
           <a href$="[[_computeBranchURL(change.project, change.branch)]]">[[change.branch]]</a>
         </span>
       </section>
+      <section>
+        <span class="title">[[_computeParentsLabel(_currentParents)]]</span>
+        <span class="value">
+          <ol class$="[[_computeParentListClass(_currentParents, parentIsCurrent)]]">
+            <template is="dom-repeat" items="[[_currentParents]]" as="parent">
+              <li>
+                <gr-commit-info
+                    change="[[change]]"
+                    commit-info="[[parent]]"
+                    server-config="[[serverConfig]]"></gr-commit-info>
+                <gr-tooltip-content
+                    id="parentNotCurrentMessage"
+                    has-tooltip
+                    show-icon
+                    title$="[[_notCurrentMessage]]"></gr-tooltip-content>
+              </li>
+            </template>
+          </ol>
+        </span>
+      </section>
       <section class="topic">
         <span class="title">Topic</span>
         <span class="value">
-          <template is="dom-if" if="[[change.topic]]">
+          <template
+              is="dom-if"
+              if="[[_showTopicChip(change.*, _settingTopic)]]">
             <gr-linked-chip
                 text="[[change.topic]]"
+                limit="40"
                 href="[[_computeTopicURL(change.topic)]]"
                 removable="[[!_topicReadOnly]]"
                 on-remove="_handleTopicRemoved"></gr-linked-chip>
           </template>
-          <template is="dom-if" if="[[!change.topic]]">
+          <template
+              is="dom-if"
+              if="[[_showAddTopic(change.*, _settingTopic)]]">
             <gr-editable-label
+                label-text="Add a topic"
                 value="[[change.topic]]"
+                max-length="1024"
                 placeholder="[[_computeTopicPlaceholder(_topicReadOnly)]]"
                 read-only="[[_topicReadOnly]]"
                 on-changed="_handleTopicChanged"></gr-editable-label>
@@ -215,6 +291,29 @@ limitations under the License.
         <span class="title">Strategy</span>
         <span class="value">[[_computeStrategy(change)]]</span>
       </section>
+      <template is="dom-if" if="[[serverConfig.note_db_enabled]]">
+        <section class="hashtag">
+          <span class="title">Hashtag</span>
+          <span class="value">
+            <template is="dom-repeat" items="[[change.hashtags]]">
+              <gr-linked-chip
+                  class="hashtagChip"
+                  text="[[item]]"
+                  href="[[_computeHashtagURL(item)]]"
+                  removable="[[!_hashtagReadOnly]]"
+                  on-remove="_handleHashtagRemoved">
+              </gr-linked-chip>
+            </template>
+            <gr-editable-label
+                uppercase
+                label-text="Add a hashtag"
+                value="{{_newHashtag}}"
+                placeholder="[[_computeHashtagPlaceholder(_hashtagReadOnly)]]"
+                read-only="[[_hashtagReadOnly]]"
+                on-changed="_handleHashtagChanged"></gr-editable-label>
+          </span>
+        </section>
+      </template>
       <template is="dom-repeat"
           items="[[_computeLabelNames(change.labels)]]" as="labelName">
         <section>
@@ -224,11 +323,11 @@ limitations under the License.
                 items="[[_computeLabelValues(labelName, change.labels.*)]]"
                 as="label">
               <div class="labelValueContainer">
-                <span class$="[[label.className]]">
+                <span>
                   <gr-label
                       has-tooltip
-                      title="[[_computeValueTooltip(label.value, labelName)]]"
-                      class="labelValue">
+                      title="[[_computeValueTooltip(change, label.value, labelName)]]"
+                      class$="[[label.className]] voteChip">
                     [[label.value]]
                   </gr-label>
                   <gr-account-chip
@@ -251,17 +350,17 @@ limitations under the License.
             <div hidden$="[[!_isWip]]">
               Work in progress
             </div>
-            <div hidden$="[[!_showMissingLabels(change.labels)]]">
-              [[_computeMissingLabelsHeader(change.labels)]]
+            <div hidden$="[[!_showMissingLabels(missingLabels)]]">
+              [[_computeMissingLabelsHeader(missingLabels)]]
               <ul id="missingLabels">
                 <template
                     is="dom-repeat"
-                    items="[[_computeMissingLabels(change.labels)]]">
+                    items="[[missingLabels]]">
                   <li>[[item]]</li>
                 </template>
               </ul>
             </div>
-            <div hidden$="[[_showMissingRequirements(change.labels, _isWip)]]">
+            <div hidden$="[[_showMissingRequirements(missingLabels, _isWip)]]">
               Ready to submit
             </div>
           </span>
@@ -278,6 +377,10 @@ limitations under the License.
           </template>
         </span>
       </section>
+      <gr-endpoint-decorator name="change-metadata-item">
+        <gr-endpoint-param name="change" value="[[change]]"></gr-endpoint-param>
+        <gr-endpoint-param name="revision" value="[[revision]]"></gr-endpoint-param>
+      </gr-endpoint-decorator>
     </gr-external-style>
     <gr-rest-api-interface id="restAPI"></gr-rest-api-interface>
   </template>

@@ -57,6 +57,15 @@ modified by any project owner through the project console, `Projects` >
 its dependencies are also submitted, with exceptions documented below.
 The following submit types are supported:
 
+[[submit_type_inherit]]
+* Inherit
++
+This is the default for new projects, unless overridden by a global
+link:config-gerrit.html#repository.name.defaultSubmitType[`defaultSubmitType` option].
++
+Inherit the submit type from the parent project. In `All-Projects`, this
+is equivalent to link:#merge_if_necessary[Merge If Necessary].
+
 [[fast_forward_only]]
 * Fast Forward Only
 +
@@ -69,8 +78,6 @@ tip of the destination branch at submit time.
 
 [[merge_if_necessary]]
 * Merge If Necessary
-+
-This is the default for a new project.
 +
 If the change being submitted is a strict superset of the destination
 branch, then the branch is fast-forwarded to the change.  If not,
@@ -224,6 +231,7 @@ maximum Git object size limit that is actually used on the project.
 The defined maximum Git object size limit is inherited by any child
 project.
 
+[[require-signed-off-by]]
 === Require Signed-off-by
 
 The `Require Signed-off-by in commit message` option defines whether a
@@ -272,13 +280,20 @@ There are several ways to delete a branch:
 - in the Web UI under 'Projects' > 'List' > <project> > 'Branches'
 - via the link:rest-api-projects.html#delete-branch[Delete Branch]
   REST endpoint
-- by using a git client to force push nothing to an existing branch
+- by using a git client
++
+----
+  $ git push origin --delete refs/heads/<branch-to-delete>
+----
++
+another method, by force pushing nothing to an existing branch:
 +
 ----
   $ git push --force origin :refs/heads/<branch-to-delete>
 ----
 
 To be able to delete branches, the user must have the
+link:access-control.html#category_delete[Delete Reference] or the
 link:access-control.html#category_push[Push] access right with the
 `force` option. In addition, project owners and Gerrit administrators
 can delete branches from the Web UI or via REST even without having the

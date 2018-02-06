@@ -22,7 +22,16 @@
      *
      * @event add
      */
+
+    /**
+     * When allowAnyInput is true, account-text-changed is fired when input text
+     * changed. This is needed so that the reply dialog's save button can be
+     * enabled for arbitrary cc's, which don't need a 'commit'.
+     *
+     * @event account-text-changed
+     */
     properties: {
+      allowAnyInput: Boolean,
       borderless: Boolean,
       change: Object,
       filter: Function,
@@ -38,9 +47,10 @@
        */
       allowAnyUser: Boolean,
 
+      // suggestFrom = 0 to enable default suggestions.
       suggestFrom: {
         type: Number,
-        value: 3,
+        value: 0,
       },
 
       query: {
@@ -49,6 +59,23 @@
           return this._getReviewerSuggestions.bind(this);
         },
       },
+
+      _config: Object,
+      /** The value of the autocomplete entry. */
+      _inputText: {
+        type: String,
+        observer: '_inputTextChanged',
+      },
+    },
+
+    behaviors: [
+      Gerrit.AnonymousNameBehavior,
+    ],
+
+    attached() {
+      this.$.restAPI.getConfig().then(cfg => {
+        this._config = cfg;
+      });
     },
 
     get focusStart() {
@@ -73,6 +100,18 @@
 
     _handleInputCommit(e) {
       this.fire('add', {value: e.detail.value});
+      this.$.input.focus();
+    },
+
+    _accountOrAnon(reviewer) {
+      return this.getUserName(this._config, reviewer, false);
+    },
+
+    _inputTextChanged(text) {
+      if (text.length && this.allowAnyInput) {
+        this.dispatchEvent(new CustomEvent('account-text-changed',
+            {bubbles: true}));
+      }
     },
 
     _makeSuggestion(reviewer) {
@@ -83,7 +122,8 @@
       };
       if (reviewer.account) {
         // Reviewer is an account suggestion from getChangeSuggestedReviewers.
-        name = reviewer.account.name + ' <' + reviewer.account.email + '>' +
+        const reviewerName = this._accountOrAnon(reviewer.account);
+        name = reviewerName + ' <' + reviewer.account.email + '>' +
             generateStatusStr(reviewer.account);
         value = reviewer;
       } else if (reviewer.group) {
@@ -92,7 +132,8 @@
         value = reviewer;
       } else if (reviewer._account_id) {
         // Reviewer is an account suggestion from getSuggestedAccounts.
-        name = reviewer.name + ' <' + reviewer.email + '>' +
+        const reviewerName = this._accountOrAnon(reviewer);
+        name = reviewerName + ' <' + reviewer.email + '>' +
             generateStatusStr(reviewer);
         value = {account: reviewer, count: 1};
       }
@@ -100,6 +141,7 @@
     },
 
     _getReviewerSuggestions(input) {
+      if (!this.change) { return Promise.resolve([]); }
       const api = this.$.restAPI;
       const xhr = this.allowAnyUser ?
           api.getSuggestedAccounts(input) :
@@ -107,7 +149,9 @@
 
       return xhr.then(reviewers => {
         if (!reviewers) { return []; }
-        if (!this.filter) { return reviewers.map(this._makeSuggestion); }
+        if (!this.filter) {
+          return reviewers.map(this._makeSuggestion.bind(this));
+        }
         return reviewers
             .filter(this.filter)
             .map(this._makeSuggestion.bind(this));

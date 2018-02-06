@@ -14,6 +14,9 @@
 (function() {
   'use strict';
 
+  const REL_NOOPENER = 'noopener';
+  const REL_EXTERNAL = 'external';
+
   Polymer({
     is: 'gr-dropdown',
 
@@ -34,6 +37,7 @@
         type: Array,
         observer: '_resetCursorStops',
       },
+      downArrow: Boolean,
       topContent: Object,
       horizontalAlign: {
         type: String,
@@ -62,8 +66,6 @@
         value() { return []; },
       },
 
-      _hasAvatars: String,
-
       /**
        * The elements of the list.
        */
@@ -85,12 +87,10 @@
       'up': '_handleUp',
     },
 
-    attached() {
-      this.$.restAPI.getConfig().then(cfg => {
-        this._hasAvatars = !!(cfg && cfg.plugin && cfg.plugin.has_avatars);
-      });
-    },
-
+    /**
+     * Handle the up key.
+     * @param {!Event} e
+     */
     _handleUp(e) {
       if (this.$.dropdown.opened) {
         e.preventDefault();
@@ -101,6 +101,10 @@
       }
     },
 
+    /**
+     * Handle the down key.
+     * @param {!Event} e
+     */
     _handleDown(e) {
       if (this.$.dropdown.opened) {
         e.preventDefault();
@@ -111,6 +115,10 @@
       }
     },
 
+    /**
+     * Handle the tab key.
+     * @param {!Event} e
+     */
     _handleTab(e) {
       if (this.$.dropdown.opened) {
         // Tab in a native select is a no-op. Emulate this.
@@ -119,6 +127,10 @@
       }
     },
 
+    /**
+     * Handle the enter key.
+     * @param {!Event} e
+     */
     _handleEnter(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -133,6 +145,10 @@
       }
     },
 
+    /**
+     * Handle a click on the iron-dropdown element.
+     * @param {!Event} e
+     */
     _handleDropdownTap(e) {
       // async is needed so that that the click event is fired before the
       // dropdown closes (This was a bug for touch devices).
@@ -141,10 +157,19 @@
       }, 1);
     },
 
+    /**
+     * Hanlde a click on the button to open the dropdown.
+     * @param {!Event} e
+     */
     _showDropdownTapHandler(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this._open();
     },
 
+    /**
+     * Open the dropdown and initialize the cursor.
+     */
     _open() {
       this.$.dropdown.open();
       this.$.cursor.setCursorAtIndex(0);
@@ -152,19 +177,43 @@
       this.$.cursor.target.focus();
     },
 
+    /**
+     * Get the class for a top-content item based on the given boolean.
+     * @param {boolean} bold Whether the item is bold.
+     * @return {string} The class for the top-content item.
+     */
     _getClassIfBold(bold) {
       return bold ? 'bold-text' : '';
     },
 
+    /**
+     * Build a URL for the given host and path. If there is a base URL, it will
+     * be included between the host and the path.
+     * @param {!string} host
+     * @param {!string} path
+     * @return {!string} The scheme-relative URL.
+     */
     _computeURLHelper(host, path) {
       return '//' + host + this.getBaseUrl() + path;
     },
 
+    /**
+     * Build a scheme-relative URL for the current host. Will include the base
+     * URL if one is present. Note: the URL will be scheme-relative but absolute
+     * with regard to the host.
+     * @param {!string} path The path for the URL.
+     * @return {!string} The scheme-relative URL.
+     */
     _computeRelativeURL(path) {
       const host = window.location.host;
       return this._computeURLHelper(host, path);
     },
 
+    /**
+     * Compute the URL for a link object.
+     * @param {!Object} link The object describing the link.
+     * @return {!string} The URL.
+     */
     _computeLinkURL(link) {
       if (typeof link.url === 'undefined') {
         return '';
@@ -175,10 +224,24 @@
       return this._computeRelativeURL(link.url);
     },
 
+    /**
+     * Compute the value for the rel attribute of an anchor for the given link
+     * object. If the link has a target value, then the rel must be "noopener"
+     * for security reasons.
+     * @param {!Object} link The object describing the link.
+     * @return {?string} The rel value for the link.
+     */
     _computeLinkRel(link) {
-      return link.target ? 'noopener' : null;
+      // Note: noopener takes precedence over external.
+      if (link.target) { return REL_NOOPENER; }
+      if (link.external) { return REL_EXTERNAL; }
+      return null;
     },
 
+    /**
+     * Handle a click on an item of the dropdown.
+     * @param {!Event} e
+     */
     _handleItemTap(e) {
       const id = e.target.getAttribute('data-id');
       const item = this.items.find(item => item.id === id);
@@ -190,10 +253,20 @@
       }
     },
 
+    /**
+     * If a dropdown item is shown as a button, get the class for the button.
+     * @param {string} id
+     * @param {!Object} disabledIdsRecord The change record for the disabled IDs
+     *     list.
+     * @return {!string} The class for the item button.
+     */
     _computeDisabledClass(id, disabledIdsRecord) {
       return disabledIdsRecord.base.includes(id) ? 'disabled' : '';
     },
 
+    /**
+     * Recompute the stops for the dropdown item cursor.
+     */
     _resetCursorStops() {
       Polymer.dom.flush();
       this._listElements = Polymer.dom(this.root).querySelectorAll('li');

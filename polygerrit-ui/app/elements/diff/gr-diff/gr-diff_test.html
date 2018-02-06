@@ -53,8 +53,6 @@ limitations under the License.
 
       // Stub the network calls into requests that never resolve.
       sandbox.stub(element, '_getDiff', () => new Promise(() => {}));
-      sandbox.stub(element, '_getDiffCommentsAndDrafts',
-          () => new Promise(() => {}));
 
       element.reload();
       assert.isTrue(cancelStub.called);
@@ -64,6 +62,92 @@ limitations under the License.
       element = fixture('basic');
       const mock = document.createElement('mock-diff-response');
       assert.equal(element._diffLength(mock.diffResponse), 52);
+    });
+
+
+    suite('_get{PatchNum|IsParentComment}ByLineAndContent', () => {
+      let lineEl;
+      let contentEl;
+
+      setup(() => {
+        element = fixture('basic');
+        lineEl = document.createElement('td');
+        contentEl = document.createElement('span');
+      });
+
+      suite('_getPatchNumByLineAndContent', () => {
+        test('right side', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 'PARENT'};
+          lineEl.classList.add('right');
+          assert.equal(element._getPatchNumByLineAndContent(lineEl, contentEl),
+              4);
+        });
+
+        test('left side parent by linenum', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 'PARENT'};
+          lineEl.classList.add('left');
+          assert.equal(element._getPatchNumByLineAndContent(lineEl, contentEl),
+              4);
+        });
+
+        test('left side parent by content', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 'PARENT'};
+          contentEl.classList.add('remove');
+          assert.equal(element._getPatchNumByLineAndContent(lineEl, contentEl),
+              4);
+        });
+
+        test('left side merge parent', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: -2};
+          contentEl.classList.add('remove');
+          assert.equal(element._getPatchNumByLineAndContent(lineEl, contentEl),
+              4);
+        });
+
+        test('left side non parent', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 3};
+          contentEl.classList.add('remove');
+          assert.equal(element._getPatchNumByLineAndContent(lineEl, contentEl),
+              3);
+        });
+      });
+
+      suite('_getIsParentCommentByLineAndContent', () => {
+        test('right side', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 'PARENT'};
+          lineEl.classList.add('right');
+          assert.isFalse(
+              element._getIsParentCommentByLineAndContent(lineEl, contentEl));
+        });
+
+        test('left side parent by linenum', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 'PARENT'};
+          lineEl.classList.add('left');
+          assert.isTrue(
+              element._getIsParentCommentByLineAndContent(lineEl, contentEl));
+        });
+
+        test('left side parent by content', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 'PARENT'};
+          contentEl.classList.add('remove');
+          assert.isTrue(
+              element._getIsParentCommentByLineAndContent(lineEl, contentEl));
+        });
+
+        test('left side merge parent', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: -2};
+          contentEl.classList.add('remove');
+          assert.isTrue(
+              element._getIsParentCommentByLineAndContent(lineEl, contentEl));
+        });
+
+        test('left side non parent', () => {
+          element.patchRange = {patchNum: 4, basePatchNum: 3};
+          contentEl.classList.add('remove');
+          assert.isFalse(
+              element._getIsParentCommentByLineAndContent(lineEl, contentEl));
+        });
+      });
     });
 
     suite('not logged in', () => {
@@ -105,51 +189,23 @@ limitations under the License.
             element.$$('.diffContainer').classList.contains('displayLine'));
       });
 
-      test('get drafts', done => {
-        element.patchRange = {basePatchNum: 0, patchNum: 0};
-
-        const getDraftsStub = sandbox.stub(element.$.restAPI, 'getDiffDrafts');
-        element._getDiffDrafts().then(result => {
-          assert.deepEqual(result, {baseComments: [], comments: []});
-          sinon.assert.notCalled(getDraftsStub);
-          done();
-        });
-      });
-
-      test('get robot comments', done => {
-        element.patchRange = {basePatchNum: 0, patchNum: 0};
-
-        const getDraftsStub = sandbox.stub(element.$.restAPI,
-            'getDiffRobotComments');
-        element._getDiffDrafts().then(result => {
-          assert.deepEqual(result, {baseComments: [], comments: []});
-          sinon.assert.notCalled(getDraftsStub);
-          done();
-        });
-      });
-
-      test('loads files weblinks', done => {
-        sandbox.stub(element.$.restAPI, 'getDiff').returns(
-            Promise.resolve({
-              meta_a: {
-                web_links: 'foo',
-              },
-              meta_b: {
-                web_links: 'bar',
-              },
-            }));
+      test('loads files weblinks', () => {
+        const weblinksStub = sandbox.stub(Gerrit.Nav, '_generateWeblinks')
+            .returns([{name: 'stubb', url: '#s'}]);
+        sandbox.stub(element.$.restAPI, 'getDiff').returns(Promise.resolve({}));
+        element.commitRange = {};
         element.patchRange = {};
-        element._getDiff().then(() => {
+        return element._getDiff().then(() => {
+          assert.isTrue(weblinksStub.called);
           assert.deepEqual(element.filesWeblinks, {
-            meta_a: 'foo',
-            meta_b: 'bar',
+            meta_a: [{name: 'stubb', url: '#s'}],
+            meta_b: [{name: 'stubb', url: '#s'}],
           });
-          done();
         });
       });
 
       test('remove comment', () => {
-        element._comments = {
+        element.comments = {
           meta: {
             changeNum: '42',
             patchRange: {
@@ -176,7 +232,7 @@ limitations under the License.
         element._removeComment({});
         // Using JSON.stringify because Safari 9.1 (11601.5.17.1) doesn’t seem
         // to believe that one object deepEquals another even when they do :-/.
-        assert.equal(JSON.stringify(element._comments), JSON.stringify({
+        assert.equal(JSON.stringify(element.comments), JSON.stringify({
           meta: {
             changeNum: '42',
             patchRange: {
@@ -202,7 +258,7 @@ limitations under the License.
 
         element._removeComment({id: 'bc2', side: 'PARENT',
           __commentSide: 'left'});
-        assert.deepEqual(element._comments, {
+        assert.deepEqual(element.comments, {
           meta: {
             changeNum: '42',
             patchRange: {
@@ -226,7 +282,7 @@ limitations under the License.
         });
 
         element._removeComment({id: 'd2', __commentSide: 'right'});
-        assert.deepEqual(element._comments, {
+        assert.deepEqual(element.comments, {
           meta: {
             changeNum: '42',
             patchRange: {
@@ -248,6 +304,20 @@ limitations under the License.
           ],
         });
       });
+
+      test('_getRangeString', () => {
+        const side = 'PARENT';
+        const range = {
+          startLine: 1,
+          startChar: 1,
+          endLine: 1,
+          endChar: 2,
+        };
+        assert.equal(element._getRangeString(side, range),
+            'range-1-1-1-2-PARENT');
+        assert.equal(element._getRangeString(side, null),
+            'line-PARENT');
+      }),
 
       test('thread groups', () => {
         const contentEl = document.createElement('div');
@@ -343,7 +413,7 @@ limitations under the License.
           stubs.push(sandbox.stub(element.$.restAPI, 'getCommitInfo',
               () => Promise.resolve(mockCommit)));
           stubs.push(sandbox.stub(element.$.restAPI,
-              'getChangeFileContents',
+              'getB64FileContents',
               (changeId, patchNum, path, opt_parentIndex) => {
                 return Promise.resolve(opt_parentIndex === 1 ? mockFile1 :
                     mockFile2);
@@ -354,6 +424,7 @@ limitations under the License.
               () => Promise.resolve(mockComments)));
 
           element.patchRange = {basePatchNum: 'PARENT', patchNum: 1};
+          element.comments = {left: [], right: []};
         });
 
         test('renders image diffs with same file name', done => {
@@ -406,7 +477,7 @@ limitations under the License.
               assert.isOk(leftImage);
               assert.equal(leftImage.getAttribute('src'),
                   'data:image/bmp;base64, ' + mockFile1.body);
-              assert.equal(leftLabelContent.textContent, '1⨉1 image/bmp');
+              assert.equal(leftLabelContent.textContent, '1×1 image/bmp');
               leftLoaded = true;
               if (rightLoaded) {
                 element.removeEventListener('render', rendered);
@@ -418,7 +489,7 @@ limitations under the License.
               assert.isOk(rightImage);
               assert.equal(rightImage.getAttribute('src'),
                   'data:image/bmp;base64, ' + mockFile2.body);
-              assert.equal(rightLabelContent.textContent, '1⨉1 image/bmp');
+              assert.equal(rightLabelContent.textContent, '1×1 image/bmp');
 
               rightLoaded = true;
               if (leftLoaded) {
@@ -488,7 +559,7 @@ limitations under the License.
               assert.isOk(leftImage);
               assert.equal(leftImage.getAttribute('src'),
                   'data:image/bmp;base64, ' + mockFile1.body);
-              assert.equal(leftLabelContent.textContent, '1⨉1 image/bmp');
+              assert.equal(leftLabelContent.textContent, '1×1 image/bmp');
               leftLoaded = true;
               if (rightLoaded) {
                 element.removeEventListener('render', rendered);
@@ -500,7 +571,7 @@ limitations under the License.
               assert.isOk(rightImage);
               assert.equal(rightImage.getAttribute('src'),
                   'data:image/bmp;base64, ' + mockFile2.body);
-              assert.equal(rightLabelContent.textContent, '1⨉1 image/bmp');
+              assert.equal(rightLabelContent.textContent, '1×1 image/bmp');
 
               rightLoaded = true;
               if (leftLoaded) {
@@ -691,7 +762,7 @@ limitations under the License.
         const setupDiff = function() {
           const mock = document.createElement('mock-diff-response');
           element._diff = mock.diffResponse;
-          element._comments = {
+          element.comments = {
             left: [],
             right: [],
           };
@@ -737,6 +808,7 @@ limitations under the License.
     });
 
     suite('logged in', () => {
+      let fakeLineEl;
       setup(() => {
         stub('gr-rest-api-interface', {
           getLoggedIn() { return Promise.resolve(true); },
@@ -745,114 +817,43 @@ limitations under the License.
           },
         });
         element = fixture('basic');
-      });
+        element.patchRange = {};
 
-      test('get drafts', done => {
-        element.patchRange = {basePatchNum: 0, patchNum: 0};
-        const draftsResponse = {
-          baseComments: [{id: 'foo'}],
-          comments: [{id: 'bar'}],
+        fakeLineEl = {
+          getAttribute: sandbox.stub().returns(42),
+          classList: {
+            contains: sandbox.stub().returns(true),
+          },
         };
-        sandbox.stub(element.$.restAPI, 'getDiffDrafts',
-            () => Promise.resolve(draftsResponse));
-        element._getDiffDrafts().then(result => {
-          assert.deepEqual(result, draftsResponse);
-          done();
-        });
-      });
-
-      test('get comments and drafts', done => {
-        const comments = {
-          baseComments: [
-            {id: 'bc1', __commentSide: 'left'},
-            {id: 'bc2', __commentSide: 'left'},
-          ],
-          comments: [
-            {id: 'c1', __commentSide: 'right'},
-            {id: 'c2', __commentSide: 'right'},
-          ],
-        };
-        sandbox.stub(element, '_getDiffComments',
-            () => Promise.resolve(comments));
-
-        const drafts = {
-          baseComments: [
-            {id: 'bd1', __commentSide: 'left'},
-            {id: 'bd2', __commentSide: 'left'},
-          ],
-          comments: [
-            {id: 'd1', __commentSide: 'right'},
-            {id: 'd2', __commentSide: 'right'},
-          ],
-        };
-
-        sandbox.stub(element, '_getDiffDrafts', () => Promise.resolve(drafts));
-
-        const robotComments = {
-          baseComments: [
-            {id: 'br1', __commentSide: 'left'},
-            {id: 'br2', __commentSide: 'left'},
-          ],
-          comments: [
-            {id: 'r1', __commentSide: 'right'},
-            {id: 'r2', __commentSide: 'right'},
-          ],
-        };
-
-        sandbox.stub(element,
-            '_getDiffRobotComments', () => Promise.resolve(robotComments));
-
-        element.changeNum = '42';
-        element.patchRange = {
-          basePatchNum: 'PARENT',
-          patchNum: 3,
-        };
-        element.path = '/path/to/foo';
-        element.projectConfig = {foo: 'bar'};
-
-        element._getDiffCommentsAndDrafts().then(result => {
-          assert.deepEqual(result, {
-            meta: {
-              changeNum: '42',
-              patchRange: {
-                basePatchNum: 'PARENT',
-                patchNum: 3,
-              },
-              path: '/path/to/foo',
-              projectConfig: {foo: 'bar'},
-            },
-            left: [
-              {id: 'bc1', __commentSide: 'left'},
-              {id: 'bc2', __commentSide: 'left'},
-              {id: 'bd1', __draft: true, __commentSide: 'left'},
-              {id: 'bd2', __draft: true, __commentSide: 'left'},
-              {id: 'br1', __commentSide: 'left'},
-              {id: 'br2', __commentSide: 'left'},
-            ],
-            right: [
-              {id: 'c1', __commentSide: 'right'},
-              {id: 'c2', __commentSide: 'right'},
-              {id: 'd1', __draft: true, __commentSide: 'right'},
-              {id: 'd2', __draft: true, __commentSide: 'right'},
-              {id: 'r1', __commentSide: 'right'},
-              {id: 'r2', __commentSide: 'right'},
-            ],
-          });
-
-          done();
-        });
       });
 
       test('addDraftAtLine', done => {
-        const fakeLineEl = {getAttribute: sandbox.stub().returns(42)};
         sandbox.stub(element, '_selectLine');
-        sandbox.stub(element, '_addDraft');
+        sandbox.stub(element, '_createComment');
         const loggedInErrorSpy = sandbox.spy();
         element.addEventListener('show-auth-required', loggedInErrorSpy);
         element.addDraftAtLine(fakeLineEl);
         flush(() => {
           assert.isFalse(loggedInErrorSpy.called);
-          assert.isTrue(element._addDraft.calledWithExactly(fakeLineEl, 42));
+          assert.isTrue(element._createComment
+              .calledWithExactly(fakeLineEl, 42));
+          done();
+        });
+      });
+
+      test('addDraftAtLine on an edit', done => {
+        element.patchRange.basePatchNum = element.EDIT_NAME;
+        sandbox.stub(element, '_selectLine');
+        sandbox.stub(element, '_createComment');
+        const loggedInErrorSpy = sandbox.spy();
+        const alertSpy = sandbox.spy();
+        element.addEventListener('show-auth-required', loggedInErrorSpy);
+        element.addEventListener('show-alert', alertSpy);
+        element.addDraftAtLine(fakeLineEl);
+        flush(() => {
+          assert.isFalse(loggedInErrorSpy.called);
+          assert.isTrue(alertSpy.called);
+          assert.isFalse(element._createComment.called);
           done();
         });
       });
@@ -868,7 +869,7 @@ limitations under the License.
             change_type: 'MODIFIED',
             content: [{skip: 66}],
           };
-          element._comments = {
+          element.comments = {
             meta: {
               changeNum: '42',
               patchRange: {
@@ -912,7 +913,7 @@ limitations under the License.
 
       suite('handle comment-update', () => {
         setup(() => {
-          element._comments = {
+          element.comments = {
             meta: {
               changeNum: '42',
               patchRange: {
@@ -941,7 +942,7 @@ limitations under the License.
           const comment = {__draft: true, __draftID: 'tempID', side: 'PARENT',
             __commentSide: 'left'};
           element.fire('comment-update', {comment});
-          assert.include(element._comments.left, comment);
+          assert.include(element.comments.left, comment);
         });
 
         test('saving a draft', () => {
@@ -953,10 +954,10 @@ limitations under the License.
             side: 'PARENT',
             __commentSide: 'left',
           };
-          element._comments.left.push(comment);
+          element.comments.left.push(comment);
           comment.id = id;
           element.fire('comment-update', {comment});
-          const drafts = element._comments.left.filter(item => {
+          const drafts = element.comments.left.filter(item => {
             return item.__draftID === draftID;
           });
           assert.equal(drafts.length, 1);
@@ -1007,7 +1008,7 @@ limitations under the License.
             () => Promise.resolve());
         const mock = document.createElement('mock-diff-response');
         element._diff = mock.diffResponse;
-        element._comments = {left: [], right: []};
+        element.comments = {left: [], right: []};
         element.noRenderOnPrefsChange = true;
       });
 
@@ -1037,6 +1038,60 @@ limitations under the License.
           assert.isFalse(renderStub.called);
           assert.isTrue(element._showWarning);
         });
+      });
+    });
+
+    suite('blame', () => {
+      setup(() => {
+        element = fixture('basic');
+      });
+
+      test('clearBlame', () => {
+        element._blame = [];
+        const setBlameSpy = sandbox.spy(element.$.diffBuilder, 'setBlame');
+        element.classList.add('showBlame');
+        element.clearBlame();
+        assert.isNull(element._blame);
+        assert.isTrue(setBlameSpy.calledWithExactly(null));
+        assert.isFalse(element.classList.contains('showBlame'));
+      });
+
+      test('loadBlame', () => {
+        const mockBlame = [{id: 'commit id', ranges: [{start: 1, end: 2}]}];
+        const showAlertStub = sinon.stub();
+        element.addEventListener('show-alert', showAlertStub);
+        const getBlameStub = sandbox.stub(element.$.restAPI, 'getBlame')
+            .returns(Promise.resolve(mockBlame));
+        element.changeNum = 42;
+        element.patchRange = {patchNum: 5, basePatchNum: 4};
+        element.path = 'foo/bar.baz';
+        return element.loadBlame().then(() => {
+          assert.isTrue(getBlameStub.calledWithExactly(
+              42, 5, 'foo/bar.baz', true));
+          assert.isFalse(showAlertStub.called);
+          assert.equal(element._blame, mockBlame);
+          assert.isTrue(element.classList.contains('showBlame'));
+        });
+      });
+
+      test('loadBlame empty', () => {
+        const mockBlame = [];
+        const showAlertStub = sinon.stub();
+        element.addEventListener('show-alert', showAlertStub);
+        sandbox.stub(element.$.restAPI, 'getBlame')
+            .returns(Promise.resolve(mockBlame));
+        element.changeNum = 42;
+        element.patchRange = {patchNum: 5, basePatchNum: 4};
+        element.path = 'foo/bar.baz';
+        return element.loadBlame()
+            .then(() => {
+              assert.isTrue(false, 'Promise should not resolve');
+            })
+            .catch(() => {
+              assert.isTrue(showAlertStub.calledOnce);
+              assert.isNull(element._blame);
+              assert.isFalse(element.classList.contains('showBlame'));
+            });
       });
     });
   });

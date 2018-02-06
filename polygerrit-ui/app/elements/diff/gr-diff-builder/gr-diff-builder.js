@@ -14,30 +14,51 @@
 (function(window, GrDiffGroup, GrDiffLine) {
   'use strict';
 
-  const HTML_ENTITY_PATTERN = /[&<>"'`\/]/g;
-  const HTML_ENTITY_MAP = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    '\'': '&#39;',
-    '/': '&#x2F;',
-    '`': '&#96;',
-  };
-
   // Prevent redefinition.
   if (window.GrDiffBuilder) { return; }
 
-  const REGEX_ASTRAL_SYMBOL = /[\uD800-\uDBFF][\uDC00-\uDFFF]/;
+  /**
+   * In JS, unicode code points above 0xFFFF occupy two elements of a string.
+   * For example '𐀏'.length is 2. An occurence of such a code point is called a
+   * surrogate pair.
+   *
+   * This regex segments a string along tabs ('\t') and surrogate pairs, since
+   * these are two cases where '1 char' does not automatically imply '1 column'.
+   *
+   * TODO: For human languages whose orthographies use combining marks, this
+   * approach won't correctly identify the grapheme boundaries. In those cases,
+   * a grapheme consists of multiple code points that should count as only one
+   * character against the column limit. Getting that correct (if it's desired)
+   * is probably beyond the limits of a regex, but there are nonstandard APIs to
+   * do this, and proposed (but, as of Nov 2017, unimplemented) standard APIs.
+   *
+   * Further reading:
+   *   On Unicode in JS: https://mathiasbynens.be/notes/javascript-unicode
+   *   Graphemes: http://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries
+   *   A proposed JS API: https://github.com/tc39/proposal-intl-segmenter
+   */
+  const REGEX_TAB_OR_SURROGATE_PAIR = /\t|[\uD800-\uDBFF][\uDC00-\uDFFF]/;
 
-  function GrDiffBuilder(diff, comments, prefs, outputEl, layers) {
+  function GrDiffBuilder(diff, comments, prefs, projectName, outputEl, layers) {
     this._diff = diff;
     this._comments = comments;
     this._prefs = prefs;
+    this._projectName = projectName;
     this._outputEl = outputEl;
     this.groups = [];
+    this._blameInfo = null;
+    this._parentIndex = undefined;
 
     this.layers = layers || [];
+
+    if (isNaN(prefs.tab_size) || prefs.tab_size <= 0) {
+      throw Error('Invalid tab size from preferences.');
+    }
+
+    if (isNaN(prefs.line_length) || prefs.line_length <= 0) {
+      throw Error('Invalid line length from preferences.');
+    }
+
 
     for (const layer of this.layers) {
       if (layer.addListener) {
@@ -45,14 +66,6 @@
       }
     }
   }
-
-  GrDiffBuilder.LESS_THAN_CODE = '<'.charCodeAt(0);
-  GrDiffBuilder.GREATER_THAN_CODE = '>'.charCodeAt(0);
-  GrDiffBuilder.AMPERSAND_CODE = '&'.charCodeAt(0);
-  GrDiffBuilder.SEMICOLON_CODE = ';'.charCodeAt(0);
-
-  GrDiffBuilder.LINE_FEED_HTML =
-      '<span class="style-scope gr-diff br"></span>';
 
   GrDiffBuilder.GroupType = {
     ADDED: 'b',
@@ -92,7 +105,7 @@
    * @param {Object} group
    */
   GrDiffBuilder.prototype.buildSectionElement = function() {
-    throw Error('Subclasses must implement buildGroupElement');
+    throw Error('Subclasses must implement buildSectionElement');
   };
 
   GrDiffBuilder.prototype.emitGroup = function(group, opt_beforeSection) {
@@ -131,7 +144,7 @@
       if (groupStartLine === 0) { // Line was removed or added.
         groupStartLine = groupEndLine;
       }
-      if (groupEndLine === 0) {  // Line was removed or added.
+      if (groupEndLine === 0) { // Line was removed or added.
         groupEndLine = groupStartLine;
       }
       if (startLine <= groupEndLine && endLine >= groupStartLine) {
@@ -152,12 +165,12 @@
   /**
    * Find line elements or line objects by a range of line numbers and a side.
    *
-   * @param {Number} start The first line number
-   * @param {Number} end The last line number
-   * @param {String} opt_side The side of the range. Either 'left' or 'right'.
-   * @param {Array<GrDiffLine>} out_lines The output list of line objects. Use
+   * @param {number} start The first line number
+   * @param {number} end The last line number
+   * @param {string} opt_side The side of the range. Either 'left' or 'right'.
+   * @param {!Array<GrDiffLine>} out_lines The output list of line objects. Use
    *     null if not desired.
-   * @param  {Array<HTMLElement>} out_elements The output list of line elements.
+   * @param  {!Array<HTMLElement>} out_elements The output list of line elements.
    *     Use null if not desired.
    */
   GrDiffBuilder.prototype.findLinesByRange = function(start, end, opt_side,
@@ -201,6 +214,11 @@
     for (let i = 0; i < lines.length; i++) {
       line = lines[i];
       el = elements[i];
+      if (!el) {
+        // Cannot re-render an element if it does not exist. This can happen
+        // if lines are collapsed and not visible on the page yet.
+        continue;
+      }
       el.parentElement.replaceChild(this._createTextEl(line, side).firstChild,
           el);
     }
@@ -210,10 +228,6 @@
       startLine, endLine, opt_side) {
     return this.getGroupsByLineRange(startLine, endLine, opt_side).map(
         group => { return group.element; });
-  };
-
-  GrDiffBuilder.prototype._commentIsAtLineNum = function(side, lineNum) {
-    return this._commentLocations[side][lineNum] === true;
   };
 
   // TODO(wyatta): Move this completely into the processor.
@@ -336,20 +350,21 @@
   };
 
   GrDiffBuilder.prototype.createCommentThreadGroup = function(changeNum,
-      patchNum, path, isOnParent, projectConfig, range) {
+      patchNum, path, isOnParent, range) {
     const threadGroupEl =
         document.createElement('gr-diff-comment-thread-group');
     threadGroupEl.changeNum = changeNum;
     threadGroupEl.patchForNewThreads = patchNum;
     threadGroupEl.path = path;
     threadGroupEl.isOnParent = isOnParent;
-    threadGroupEl.projectConfig = projectConfig;
+    threadGroupEl.projectName = this._projectName;
     threadGroupEl.range = range;
+    threadGroupEl.parentIndex = this._parentIndex;
     return threadGroupEl;
   };
 
-  GrDiffBuilder.prototype._commentThreadGroupForLine = function(line,
-      opt_side) {
+  GrDiffBuilder.prototype._commentThreadGroupForLine = function(
+      line, opt_side) {
     const comments =
         this._getCommentsForLine(this._comments, line, opt_side);
     if (!comments || comments.length === 0) {
@@ -359,19 +374,18 @@
     let patchNum = this._comments.meta.patchRange.patchNum;
     let isOnParent = comments[0].side === 'PARENT' || false;
     if (line.type === GrDiffLine.Type.REMOVE ||
-    opt_side === GrDiffBuilder.Side.LEFT) {
-      if (this._comments.meta.patchRange.basePatchNum === 'PARENT') {
+        opt_side === GrDiffBuilder.Side.LEFT) {
+      if (this._comments.meta.patchRange.basePatchNum === 'PARENT' ||
+          Gerrit.PatchSetBehavior.isMergeParent(
+              this._comments.meta.patchRange.basePatchNum)) {
         isOnParent = true;
       } else {
         patchNum = this._comments.meta.patchRange.basePatchNum;
       }
     }
     const threadGroupEl = this.createCommentThreadGroup(
-        this._comments.meta.changeNum,
-        patchNum,
-        this._comments.meta.path,
-        isOnParent,
-        this._comments.meta.projectConfig);
+        this._comments.meta.changeNum, patchNum, this._comments.meta.path,
+        isOnParent);
     threadGroupEl.comments = comments;
     if (opt_side) {
       threadGroupEl.setAttribute('data-side', opt_side);
@@ -379,8 +393,8 @@
     return threadGroupEl;
   };
 
-  GrDiffBuilder.prototype._createLineEl = function(line, number, type,
-      opt_class) {
+  GrDiffBuilder.prototype._createLineEl = function(
+      line, number, type, opt_class) {
     const td = this._createElement('td');
     if (opt_class) {
       td.classList.add(opt_class);
@@ -406,30 +420,18 @@
 
   GrDiffBuilder.prototype._createTextEl = function(line, opt_side) {
     const td = this._createElement('td');
-    const text = line.text;
     if (line.type !== GrDiffLine.Type.BLANK) {
       td.classList.add('content');
     }
     td.classList.add(line.type);
-    let html = this._escapeHTML(text);
-    html = this._addTabWrappers(html, this._prefs.tab_size);
-    if (!this._prefs.line_wrapping &&
-        this._textLength(text, this._prefs.tab_size) >
-        this._prefs.line_length) {
-      html = this._addNewlines(text, html);
-    }
 
-    const contentText = this._createElement('div', 'contentText');
+    const lineLimit =
+        !this._prefs.line_wrapping ? this._prefs.line_length : Infinity;
+
+    const contentText =
+        this._formatText(line.text, this._prefs.tab_size, lineLimit);
     if (opt_side) {
       contentText.setAttribute('data-side', opt_side);
-    }
-
-    // If the html is equivalent to the text then it didn't get highlighted
-    // or escaped. Use textContent which is faster than innerHTML.
-    if (html === text) {
-      contentText.textContent = text;
-    } else {
-      contentText.innerHTML = html;
     }
 
     for (const layer of this.layers) {
@@ -442,139 +444,85 @@
   };
 
   /**
-   * Returns the text length after normalizing unicode and tabs.
-   * @return {Number} The normalized length of the text.
+   * Returns a 'div' element containing the supplied |text| as its innerText,
+   * with '\t' characters expanded to a width determined by |tabSize|, and the
+   * text wrapped at column |lineLimit|, which may be Infinity if no wrapping is
+   * desired.
+   *
+   * @param {string} text The text to be formatted.
+   * @param {number} tabSize The width of each tab stop.
+   * @param {number} lineLimit The column after which to wrap lines.
+   * @return {HTMLElement}
    */
-  GrDiffBuilder.prototype._textLength = function(text, tabSize) {
-    text = text.replace(REGEX_ASTRAL_SYMBOL, '_');
-    let numChars = 0;
-    for (let i = 0; i < text.length; i++) {
-      if (text[i] === '\t') {
-        numChars += tabSize - (numChars % tabSize);
-      } else {
-        numChars++;
-      }
-    }
-    return numChars;
-  };
+  GrDiffBuilder.prototype._formatText = function(text, tabSize, lineLimit) {
+    const contentText = this._createElement('div', 'contentText');
 
-  // Advance `index` by the appropriate number of characters that would
-  // represent one source code character and return that index. For
-  // example, for source code '<span>' the escaped html string is
-  // '&lt;span&gt;'. Advancing from index 0 on the prior html string would
-  // return 4, since &lt; maps to one source code character ('<').
-  GrDiffBuilder.prototype._advanceChar = function(html, index) {
-    // TODO(andybons): Unicode is all kinds of messed up in JS. Account for it.
-    // https://mathiasbynens.be/notes/javascript-unicode
-
-    // Tags don't count as characters
-    while (index < html.length &&
-           html.charCodeAt(index) === GrDiffBuilder.LESS_THAN_CODE) {
-      while (index < html.length &&
-             html.charCodeAt(index) !== GrDiffBuilder.GREATER_THAN_CODE) {
-        index++;
-      }
-      index++;  // skip the ">" itself
-    }
-    // An HTML entity (e.g., &lt;) counts as one character.
-    if (index < html.length &&
-        html.charCodeAt(index) === GrDiffBuilder.AMPERSAND_CODE) {
-      while (index < html.length &&
-             html.charCodeAt(index) !== GrDiffBuilder.SEMICOLON_CODE) {
-        index++;
-      }
-    }
-    return index + 1;
-  };
-
-  GrDiffBuilder.prototype._advancePastTagClose = function(html, index) {
-    while (index < html.length &&
-           html.charCodeAt(index) !== GrDiffBuilder.GREATER_THAN_CODE) {
-      index++;
-    }
-    return index + 1;
-  };
-
-  GrDiffBuilder.prototype._addNewlines = function(text, html) {
-    let htmlIndex = 0;
-    const indices = [];
-    let numChars = 0;
-    let prevHtmlIndex = 0;
-    for (let i = 0; i < text.length; i++) {
-      if (numChars > 0 && numChars % this._prefs.line_length === 0) {
-        indices.push(htmlIndex);
-      }
-      htmlIndex = this._advanceChar(html, htmlIndex);
-      if (text[i] === '\t') {
-        // Advance past tab closing tag.
-        htmlIndex = this._advancePastTagClose(html, htmlIndex);
-        // ~~ is a faster Math.floor
-        if (~~(numChars / this._prefs.line_length) !==
-            ~~((numChars + this._prefs.tab_size) / this._prefs.line_length)) {
-          // Tab crosses line limit - push it to the next line.
-          indices.push(prevHtmlIndex);
+    let columnPos = 0;
+    let textOffset = 0;
+    for (const segment of text.split(REGEX_TAB_OR_SURROGATE_PAIR)) {
+      if (segment) {
+        // |segment| contains only normal characters. If |segment| doesn't fit
+        // entirely on the current line, append chunks of |segment| followed by
+        // line breaks.
+        let rowStart = 0;
+        let rowEnd = lineLimit - columnPos;
+        while (rowEnd < segment.length) {
+          contentText.appendChild(
+              document.createTextNode(segment.substring(rowStart, rowEnd)));
+          contentText.appendChild(this._createElement('span', 'br'));
+          columnPos = 0;
+          rowStart = rowEnd;
+          rowEnd += lineLimit;
         }
-        numChars += this._prefs.tab_size;
-      } else {
-        numChars++;
+        // Append the last part of |segment|, which fits on the current line.
+        contentText.appendChild(
+            document.createTextNode(segment.substring(rowStart)));
+        columnPos += (segment.length - rowStart);
+        textOffset += segment.length;
       }
-      prevHtmlIndex = htmlIndex;
+      if (textOffset < text.length) {
+        // Handle the special character at |textOffset|.
+        if (text.startsWith('\t', textOffset)) {
+          // Append a single '\t' character.
+          let effectiveTabSize = tabSize - (columnPos % tabSize);
+          if (columnPos + effectiveTabSize > lineLimit) {
+            contentText.appendChild(this._createElement('span', 'br'));
+            columnPos = 0;
+            effectiveTabSize = tabSize;
+          }
+          contentText.appendChild(this._getTabWrapper(effectiveTabSize));
+          columnPos += effectiveTabSize;
+          textOffset++;
+        } else {
+          // Append a single surrogate pair.
+          if (columnPos >= lineLimit) {
+            contentText.appendChild(this._createElement('span', 'br'));
+            columnPos = 0;
+          }
+          contentText.appendChild(document.createTextNode(
+              text.substring(textOffset, textOffset + 2)));
+          textOffset += 2;
+          columnPos += 1;
+        }
+      }
     }
-    let result = html;
-    // Since the result string is being altered in place, start from the end
-    // of the string so that the insertion indices are not affected as the
-    // result string changes.
-    for (let i = indices.length - 1; i >= 0; i--) {
-      result = result.slice(0, indices[i]) + GrDiffBuilder.LINE_FEED_HTML +
-          result.slice(indices[i]);
-    }
-    return result;
+    return contentText;
   };
 
   /**
-   * Takes a string of text (not HTML) and returns a string of HTML with tab
-   * elements in place of tab characters. In each case tab elements are given
-   * the width needed to reach the next tab-stop.
+   * Returns a <span> element holding a '\t' character, that will visually
+   * occupy |tabSize| many columns.
    *
-   * @param {String} A line of text potentially containing tab characters.
-   * @param {Number} The width for tabs.
-   * @return {String} An HTML string potentially containing tab elements.
+   * @param {number} tabSize The effective size of this tab stop.
+   * @return {HTMLElement}
    */
-  GrDiffBuilder.prototype._addTabWrappers = function(line, tabSize) {
-    if (!line.length) { return ''; }
-
-    let result = '';
-    let offset = 0;
-    const split = line.split('\t');
-    let width;
-
-    for (let i = 0; i < split.length - 1; i++) {
-      offset += split[i].length;
-      width = tabSize - (offset % tabSize);
-      result += split[i] + this._getTabWrapper(width);
-      offset += width;
-    }
-    if (split.length) {
-      result += split[split.length - 1];
-    }
-
-    return result;
-  };
-
   GrDiffBuilder.prototype._getTabWrapper = function(tabSize) {
     // Force this to be a number to prevent arbitrary injection.
-    tabSize = +tabSize;
-    if (isNaN(tabSize)) {
-      throw Error('Invalid tab size from preferences.');
-    }
-
-    let str = '<span class="style-scope gr-diff tab ';
-    str += '" style="';
-    // TODO(andybons): CSS tab-size is not supported in IE.
-    str += 'tab-size:' + tabSize + ';';
-    str += '-moz-tab-size:' + tabSize + ';';
-    str += '">\t</span>';
-    return str;
+    const result = this._createElement('span', 'tab');
+    result.style['tab-size'] = tabSize;
+    result.style['-moz-tab-size'] = tabSize;
+    result.innerText = '\t';
+    return result;
   };
 
   GrDiffBuilder.prototype._createElement = function(tagName, className) {
@@ -600,7 +548,7 @@
    * Finds the next DIV.contentText element following the given element, and on
    * the same side. Will only search within a group.
    * @param {HTMLElement} content
-   * @param {String} side Either 'left' or 'right'
+   * @param {string} side Either 'left' or 'right'
    * @return {HTMLElement}
    */
   GrDiffBuilder.prototype._getNextContentOnSide = function(content, side) {
@@ -610,8 +558,8 @@
   /**
    * Determines whether the given group is either totally an addition or totally
    * a removal.
-   * @param {GrDiffGroup} group
-   * @return {Boolean}
+   * @param {!Object} group (GrDiffGroup)
+   * @return {boolean}
    */
   GrDiffBuilder.prototype._isTotal = function(group) {
     return group.type === GrDiffGroup.Type.DELTA &&
@@ -619,10 +567,108 @@
         !(!group.adds.length && !group.removes.length);
   };
 
-  GrDiffBuilder.prototype._escapeHTML = function(str) {
-    return str.replace(HTML_ENTITY_PATTERN, s => {
-      return HTML_ENTITY_MAP[s];
-    });
+  /**
+   * Set the blame information for the diff. For any already-rendered line,
+   * re-render its blame cell content.
+   * @param {Object} blame
+   */
+  GrDiffBuilder.prototype.setBlame = function(blame) {
+    this._blameInfo = blame;
+
+    // TODO(wyatta): make this loop asynchronous.
+    for (const commit of blame) {
+      for (const range of commit.ranges) {
+        for (let i = range.start; i <= range.end; i++) {
+          // TODO(wyatta): this query is expensive, but, when traversing a
+          // range, the lines are consecutive, and given the previous blame
+          // cell, the next one can be reached cheaply.
+          const el = this._getBlameByLineNum(i);
+          if (!el) { continue; }
+          // Remove the element's children (if any).
+          while (el.hasChildNodes()) {
+            el.removeChild(el.lastChild);
+          }
+          const blame = this._getBlameForBaseLine(i, commit);
+          el.appendChild(blame);
+        }
+      }
+    }
+  };
+
+  GrDiffBuilder.prototype.setParentIndex = function(index) {
+    this._parentIndex = index;
+  };
+
+  /**
+   * Find the blame cell for a given line number.
+   * @param {number} lineNum
+   * @return {HTMLTableDataCellElement}
+   */
+  GrDiffBuilder.prototype._getBlameByLineNum = function(lineNum) {
+    const root = Polymer.dom(this._outputEl);
+    return root.querySelector(`td.blame[data-line-number="${lineNum}"]`);
+  };
+
+  /**
+   * Given a base line number, return the commit containing that line in the
+   * current set of blame information. If no blame information has been
+   * provided, null is returned.
+   * @param {number} lineNum
+   * @return {Object} The commit information.
+   */
+  GrDiffBuilder.prototype._getBlameCommitForBaseLine = function(lineNum) {
+    if (!this._blameInfo) { return null; }
+
+    for (const blameCommit of this._blameInfo) {
+      for (const range of blameCommit.ranges) {
+        if (range.start <= lineNum && range.end >= lineNum) {
+          return blameCommit;
+        }
+      }
+    }
+    return null;
+  };
+
+  /**
+   * Given the number of a base line, get the content for the blame cell of that
+   * line. If there is no blame information for that line, returns null.
+   * @param {number} lineNum
+   * @param {Object=} opt_commit Optionally provide the commit object, so that
+   *     it does not need to be searched.
+   * @return {HTMLSpanElement}
+   */
+  GrDiffBuilder.prototype._getBlameForBaseLine = function(lineNum, opt_commit) {
+    const commit = opt_commit || this._getBlameCommitForBaseLine(lineNum);
+    if (!commit) { return null; }
+
+    const isStartOfRange = commit.ranges.some(r => r.start === lineNum);
+
+    const date = (new Date(commit.time * 1000)).toLocaleDateString();
+    const blameNode = this._createElement('span',
+        isStartOfRange ? 'startOfRange' : '');
+    const shaNode = this._createElement('span', 'sha');
+    shaNode.innerText = commit.id.substr(0, 7);
+    blameNode.appendChild(shaNode);
+    blameNode.append(` on ${date} by ${commit.author}`);
+    return blameNode;
+  };
+
+  /**
+   * Create a blame cell for the given base line. Blame information will be
+   * included in the cell if available.
+   * @param {GrDiffLine} line
+   * @return {HTMLTableDataCellElement}
+   */
+  GrDiffBuilder.prototype._createBlameCell = function(line) {
+    const blameTd = this._createElement('td', 'blame');
+    blameTd.setAttribute('data-line-number', line.beforeNumber);
+    if (line.beforeNumber) {
+      const content = this._getBlameForBaseLine(line.beforeNumber);
+      if (content) {
+        blameTd.appendChild(content);
+      }
+    }
+    return blameTd;
   };
 
   window.GrDiffBuilder = GrDiffBuilder;

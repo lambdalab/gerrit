@@ -33,10 +33,10 @@ of them we must use a qualified name like `gerrit:change_branch(X)`.
     |ID, full name and the email of the commit author.  The full name and the
     email are string atoms
 
-|`commit_committer/1` |`commit_committer()`
+|`commit_committer/1` |`commit_committer(user(100000)).`
     |Committer of the commit as `user(ID)` term. ID is the numeric account ID
 
-|`commit_committer/3` |`commit_committer()`
+|`commit_committer/3` |`commit_committer(user(100000), 'John Doe', 'john.doe@example.com').`
     |ID, full name and the email of the commit committer. The full name and the
     email are string atoms
 
@@ -57,6 +57,10 @@ of them we must use a qualified name like `gerrit:change_branch(X)`.
                       |`current_user(user(anonymous)).`
                       |`current_user(user(peer_daemon)).`
                       |`current_user(user(replication)).`
+
+|`pure_revert/1`     |`pure_revert(1).`
+    |link:rest-api-changes.html#get-pure-revert[Pure revert] as integer atom (1 if
+        the change is a pure revert, 0 otherwise)
 
 |`uploader/1`     |`uploader(user(1000000)).`
     |Uploader as `user(ID)` term. ID is the numeric account ID

@@ -13,9 +13,28 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 -->
+<script>
+  // This must be set prior to loading Polymer for the first time.
+  if (localStorage.getItem('USE_SHADOW_DOM') === 'true') {
+    window.Polymer = {
+      dom: 'shadow',
+    };
+  }
+</script>
 
 <link rel="import" href="../bower_components/polymer/polymer.html">
+<link rel="import" href="../bower_components/polymer-resin/standalone/polymer-resin.html">
+<script>
+  security.polymer_resin.install({
+    allowedIdentifierPrefixes: [''],
+    reportHandler: security.polymer_resin.CONSOLE_LOGGING_REPORT_HANDLER,
+  });
+</script>
 
+<link rel="import" href="../behaviors/base-url-behavior/base-url-behavior.html">
+<link rel="import" href="../behaviors/keyboard-shortcut-behavior/keyboard-shortcut-behavior.html">
+<link rel="import" href="../styles/app-theme.html">
+<link rel="import" href="../styles/shared-styles.html">
 <link rel="import" href="./admin/gr-admin-view/gr-admin-view.html">
 <link rel="import" href="./change-list/gr-change-list-view/gr-change-list-view.html">
 <link rel="import" href="./change-list/gr-dashboard-view/gr-dashboard-view.html">
@@ -23,21 +42,20 @@ limitations under the License.
 <link rel="import" href="./core/gr-error-manager/gr-error-manager.html">
 <link rel="import" href="./core/gr-keyboard-shortcuts-dialog/gr-keyboard-shortcuts-dialog.html">
 <link rel="import" href="./core/gr-main-header/gr-main-header.html">
+<link rel="import" href="./core/gr-navigation/gr-navigation.html">
 <link rel="import" href="./core/gr-reporting/gr-reporting.html">
 <link rel="import" href="./core/gr-router/gr-router.html">
 <link rel="import" href="./diff/gr-diff-view/gr-diff-view.html">
+<link rel="import" href="./edit/gr-editor-view/gr-editor-view.html">
+<link rel="import" href="./plugins/gr-endpoint-decorator/gr-endpoint-decorator.html">
+<link rel="import" href="./plugins/gr-endpoint-param/gr-endpoint-param.html">
 <link rel="import" href="./plugins/gr-external-style/gr-external-style.html">
 <link rel="import" href="./plugins/gr-plugin-host/gr-plugin-host.html">
 <link rel="import" href="./settings/gr-cla-view/gr-cla-view.html">
 <link rel="import" href="./settings/gr-registration-dialog/gr-registration-dialog.html">
 <link rel="import" href="./settings/gr-settings-view/gr-settings-view.html">
 <link rel="import" href="./shared/gr-fixed-panel/gr-fixed-panel.html">
-<link rel="import" href="./shared/gr-overlay/gr-overlay.html">
 <link rel="import" href="./shared/gr-rest-api-interface/gr-rest-api-interface.html">
-<link rel="import" href="../behaviors/base-url-behavior/base-url-behavior.html">
-<link rel="import" href="../behaviors/keyboard-shortcut-behavior/keyboard-shortcut-behavior.html">
-<link rel="import" href="../styles/app-theme.html">
-<link rel="import" href="../styles/shared-styles.html">
 
 <script src="../scripts/util.js"></script>
 
@@ -60,6 +78,10 @@ limitations under the License.
       footer {
         color: var(--primary-text-color);
       }
+      gr-main-header.shadow {
+        /* Make it obvious for shadow dom testing */
+        border-bottom: 1px solid pink;
+      }
       gr-main-header {
         background-color: var(--header-background-color);
         padding: 0 var(--default-horizontal-margin);
@@ -73,6 +95,7 @@ limitations under the License.
       }
       main {
         flex: 1;
+        padding-bottom: 2em;
         position: relative;
       }
       .errorView {
@@ -90,14 +113,14 @@ limitations under the License.
         display: flex;
       }
       .errorEmoji {
-        font-size: 2.6em;
+        font-size: 2.6rem;
       }
       .errorText,
       .errorMoreInfo {
         margin-top: .75em;
       }
       .errorText {
-        font-size: 1.2em;
+        font-size: 1.2rem;
       }
       .errorMoreInfo {
         color: #999;
@@ -107,7 +130,10 @@ limitations under the License.
       }
     </style>
     <gr-fixed-panel id="header">
-      <gr-main-header id="mainHeader" search-query="{{params.query}}">
+      <gr-main-header
+          id="mainHeader"
+          search-query="{{params.query}}"
+          class$="[[_computeShadowClass(_isShadowDom)]]">
       </gr-main-header>
     </gr-fixed-panel>
     <main>
@@ -129,11 +155,15 @@ limitations under the License.
             view-state="{{_viewState.changeView}}"
             back-page="[[_lastSearchPage]]"></gr-change-view>
       </template>
-      <template is="dom-if" if="[[_showDiffView]]" restamp="true">
-        <gr-diff-view
-            params="[[params]]"
-            change-view-state="{{_viewState.changeView}}"></gr-diff-view>
+      <template is="dom-if" if="[[_showEditorView]]" restamp="true">
+        <gr-editor-view
+            params="[[params]]"></gr-editor-view>
       </template>
+      <template is="dom-if" if="[[_showDiffView]]" restamp="true">
+          <gr-diff-view
+              params="[[params]]"
+              change-view-state="{{_viewState.changeView}}"></gr-diff-view>
+        </template>
       <template is="dom-if" if="[[_showSettingsView]]" restamp="true">
         <gr-settings-view
             params="[[params]]"
@@ -144,8 +174,13 @@ limitations under the License.
         <gr-admin-view path="[[_path]]"
             params=[[params]]></gr-admin-view>
       </template>
+      <template is="dom-if" if="[[_showPluginScreen]]" restamp="true">
+        <gr-endpoint-decorator name="[[_pluginScreenName]]">
+          <gr-endpoint-param name="token" value="[[params.screen]]"></gr-endpoint-param>
+        </gr-endpoint-decorator>
+      </template>
       <template is="dom-if" if="[[_showCLAView]]" restamp="true">
-        <gr-cla-view path="[[_path]]"></gr-cla-view>
+        <gr-cla-view></gr-cla-view>
       </template>
       <div id="errorView" class="errorView">
         <div class="errorEmoji">[[_lastError.emoji]]</div>
@@ -153,7 +188,7 @@ limitations under the License.
         <div class="errorMoreInfo">[[_lastError.moreInfo]]</div>
       </div>
     </main>
-    <footer r="contentinfo">
+    <footer r="contentinfo" class$="[[_computeShadowClass(_isShadowDom)]]">
       <div>
         Powered by <a href="https://www.gerritcodereview.com/" rel="noopener"
         target="_blank">Gerrit Code Review</a>
@@ -165,7 +200,7 @@ limitations under the License.
             rel="noopener" target="_blank">Send feedback</a>
         <template is="dom-if" if="[[_computeShowGwtUiLink(_serverConfig)]]">
           |
-          <a id="gwtLink" href$="[[computeGwtUrl(_path)]]" rel="external">Old UI</a>
+          <a id="gwtLink" href$="[[computeGwtUrl(_path)]]" rel="external">Switch to Old UI</a>
         </template>
         | Press &ldquo;?&rdquo; for keyboard shortcuts
       </div>
@@ -177,16 +212,18 @@ limitations under the License.
     </gr-overlay>
     <gr-overlay id="registration" with-backdrop>
       <gr-registration-dialog
+          settings-url="[[_settingsUrl]]"
           on-account-detail-update="_handleAccountDetailUpdate"
           on-close="_handleRegistrationDialogClose">
       </gr-registration-dialog>
     </gr-overlay>
+    <gr-endpoint-decorator name="plugin-overlay"></gr-endpoint-decorator>
     <gr-error-manager id="errorManager"></gr-error-manager>
     <gr-rest-api-interface id="restAPI"></gr-rest-api-interface>
     <gr-reporting id="reporting"></gr-reporting>
     <gr-router id="router"></gr-router>
     <gr-plugin-host id="plugins"
-        config="[[_serverConfig.plugin]]">
+        config="[[_serverConfig]]">
     </gr-plugin-host>
     <gr-external-style id="externalStyle" name="app-theme"></gr-external-style>
   </template>

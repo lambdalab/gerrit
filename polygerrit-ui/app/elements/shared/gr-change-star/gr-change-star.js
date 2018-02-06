@@ -18,12 +18,13 @@
     is: 'gr-change-star',
 
     properties: {
+      /** @type {?} */
       change: {
         type: Object,
         notify: true,
       },
 
-      _xhrPromise: Object,  // Used for testing.
+      _xhrPromise: Object, // Used for testing.
     },
 
     _computeStarClass(starred) {

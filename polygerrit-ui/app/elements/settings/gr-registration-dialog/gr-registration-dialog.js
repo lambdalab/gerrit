@@ -30,8 +30,20 @@
      */
 
     properties: {
-      _account: Object,
-      _saving: Boolean,
+      settingsUrl: String,
+      /** @type {?} */
+      _account: {
+        type: Object,
+        value: () => {
+          // Prepopulate possibly undefined fields with values to trigger
+          // computed bindings.
+          return {email: null, name: null, username: null};
+        },
+      },
+      _saving: {
+        type: Boolean,
+        value: false,
+      },
     },
 
     hostAttributes: {
@@ -40,22 +52,19 @@
 
     attached() {
       this.$.restAPI.getAccount().then(account => {
-        this._account = account;
+        // Using Object.assign here allows preservation of the default values
+        // supplied in the value generating function of this._account, unless
+        // they are overridden by properties in the account from the response.
+        this._account = Object.assign({}, this._account, account);
       });
-    },
-
-    _handleNameKeydown(e) {
-      if (e.keyCode === 13) { // Enter
-        e.stopPropagation();
-        this._save();
-      }
     },
 
     _save() {
       this._saving = true;
       const promises = [
         this.$.restAPI.setAccountName(this.$.name.value),
-        this.$.restAPI.setPreferredAccountEmail(this.$.email.value),
+        this.$.restAPI.setAccountUsername(this.$.username.value),
+        this.$.restAPI.setPreferredAccountEmail(this.$.email.value || ''),
       ];
       return Promise.all(promises).then(() => {
         this._saving = false;
@@ -65,15 +74,21 @@
 
     _handleSave(e) {
       e.preventDefault();
-      this._save().then(() => {
-        this.fire('close');
-      });
+      this._save().then(this.close.bind(this));
     },
 
     _handleClose(e) {
       e.preventDefault();
+      this.close();
+    },
+
+    close() {
       this._saving = true; // disable buttons indefinitely
       this.fire('close');
+    },
+
+    _computeSaveDisabled(name, username, email, saving) {
+      return !name || !username || !email || saving;
     },
   });
 })();

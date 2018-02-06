@@ -30,6 +30,7 @@ import com.google.gerrit.client.projects.ConfigInfo;
 import com.google.gerrit.client.projects.ConfigInfo.ConfigParameterInfo;
 import com.google.gerrit.client.projects.ConfigInfo.ConfigParameterValue;
 import com.google.gerrit.client.projects.ConfigInfo.InheritedBooleanInfo;
+import com.google.gerrit.client.projects.ConfigInfo.SubmitTypeInfo;
 import com.google.gerrit.client.projects.ProjectApi;
 import com.google.gerrit.client.rpc.CallbackGroup;
 import com.google.gerrit.client.rpc.GerritCallback;
@@ -86,6 +87,7 @@ public class ProjectInfoScreen extends ProjectScreen {
   private ListBox enableSignedPush;
   private ListBox requireSignedPush;
   private ListBox rejectImplicitMerges;
+  private ListBox privateByDefault;
   private ListBox enableReviewerByEmail;
   private ListBox matchAuthorToCommitterDate;
   private NpTextBox maxObjectSizeLimit;
@@ -187,11 +189,15 @@ public class ProjectInfoScreen extends ProjectScreen {
     if (enableSignedPush != null) {
       enableSignedPush.setEnabled(isOwner);
     }
+    if (requireSignedPush != null) {
+      requireSignedPush.setEnabled(isOwner);
+    }
     descTxt.setEnabled(isOwner);
     contributorAgreements.setEnabled(isOwner);
     signedOffBy.setEnabled(isOwner);
     requireChangeID.setEnabled(isOwner);
     rejectImplicitMerges.setEnabled(isOwner);
+    privateByDefault.setEnabled(isOwner);
     maxObjectSizeLimit.setEnabled(isOwner);
     enableReviewerByEmail.setEnabled(isOwner);
     matchAuthorToCommitterDate.setEnabled(isOwner);
@@ -268,6 +274,10 @@ public class ProjectInfoScreen extends ProjectScreen {
     saveEnabler.listenTo(rejectImplicitMerges);
     grid.addHtml(AdminConstants.I.rejectImplicitMerges(), rejectImplicitMerges);
 
+    privateByDefault = newInheritedBooleanBox();
+    saveEnabler.listenTo(privateByDefault);
+    grid.addHtml(AdminConstants.I.privateByDefault(), privateByDefault);
+
     enableReviewerByEmail = newInheritedBooleanBox();
     saveEnabler.listenTo(enableReviewerByEmail);
     grid.addHtml(AdminConstants.I.enableReviewerByEmail(), enableReviewerByEmail);
@@ -326,18 +336,27 @@ public class ProjectInfoScreen extends ProjectScreen {
     grid.addHtml(AdminConstants.I.useSignedOffBy(), signedOffBy);
   }
 
-  private void setSubmitType(SubmitType newSubmitType) {
+  private void setSubmitType(SubmitTypeInfo newSubmitType) {
     int index = -1;
-    if (submitType != null) {
+    if (newSubmitType != null) {
       for (int i = 0; i < submitType.getItemCount(); i++) {
-        if (newSubmitType.name().equals(submitType.getValue(i))) {
+        if (submitType.getValue(i).equals(SubmitType.INHERIT.name())) {
+          submitType.setItemText(i, getInheritString(newSubmitType));
+        }
+        if (newSubmitType.configuredValue().name().equals(submitType.getValue(i))) {
           index = i;
-          break;
         }
       }
       submitType.setSelectedIndex(index);
       setEnabledForUseContentMerge();
     }
+  }
+
+  private static String getInheritString(SubmitTypeInfo submitType) {
+    return Util.toLongString(SubmitType.INHERIT)
+        + " ("
+        + Util.toLongString(submitType.inheritedValue())
+        + ")";
   }
 
   private void setState(ProjectState newState) {
@@ -407,9 +426,10 @@ public class ProjectInfoScreen extends ProjectScreen {
       setBool(requireSignedPush, result.requireSignedPush());
     }
     setBool(rejectImplicitMerges, result.rejectImplicitMerges());
+    setBool(privateByDefault, result.privateByDefault());
     setBool(enableReviewerByEmail, result.enableReviewerByEmail());
     setBool(matchAuthorToCommitterDate, result.matchAuthorToCommitterDate());
-    setSubmitType(result.submitType());
+    setSubmitType(result.defaultSubmitType());
     setState(result.state());
     maxObjectSizeLimit.setText(result.maxObjectSizeLimit().configuredValue());
     if (result.maxObjectSizeLimit().inheritedValue() != null) {
@@ -657,7 +677,7 @@ public class ProjectInfoScreen extends ProjectScreen {
         new ClickHandler() {
           @Override
           public void onClick(ClickEvent event) {
-            EditConfigAction.call(editConfig, getProjectKey().get());
+            EditConfigAction.call(editConfig, getProjectKey());
           }
         });
     return editConfig;
@@ -679,6 +699,7 @@ public class ProjectInfoScreen extends ProjectScreen {
         esp,
         rsp,
         getBool(rejectImplicitMerges),
+        getBool(privateByDefault),
         getBool(enableReviewerByEmail),
         getBool(matchAuthorToCommitterDate),
         maxObjectSizeLimit.getText().trim(),

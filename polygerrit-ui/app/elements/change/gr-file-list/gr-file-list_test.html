@@ -22,6 +22,7 @@ limitations under the License.
 <script src="../../../bower_components/web-component-tester/browser.js"></script>
 <link rel="import" href="../../../test/common-test-setup.html"/>
 <script src="../../../bower_components/page/page.js"></script>
+<link rel="import" href="../../diff/gr-comment-api/gr-comment-api.html">
 <script src="../../../scripts/util.js"></script>
 
 <link rel="import" href="../../shared/gr-rest-api-interface/mock-diff-response_test.html">
@@ -29,30 +30,39 @@ limitations under the License.
 
 <script>void(0);</script>
 
+<dom-module id="comment-api-mock">
+  <template>
+    <gr-file-list id="fileList"
+        change-comments="[[_changeComments]]"
+        on-reload-drafts="_reloadDraftsWithCallback"></gr-file-list>
+    <gr-comment-api id="commentAPI"></gr-comment-api>
+  </template>
+  <script src="../../diff/gr-comment-api/gr-comment-api-mock.js"></script>
+</dom-module>
+
 <test-fixture id="basic">
   <template>
-    <gr-file-list></gr-file-list>
-  </template>
-</test-fixture>
-
-<test-fixture id="blank">
-  <template>
-    <div></div>
+    <comment-api-mock></comment-api-mock>
   </template>
 </test-fixture>
 
 <script>
   suite('gr-file-list tests', () => {
     let element;
+    let commentApiWrapper;
     let sandbox;
     let saveStub;
+    let loadCommentSpy;
 
-    setup(() => {
+    setup(done => {
       sandbox = sinon.sandbox.create();
       stub('gr-rest-api-interface', {
         getLoggedIn() { return Promise.resolve(true); },
         getPreferences() { return Promise.resolve({}); },
         fetchJSON() { return Promise.resolve({}); },
+        getDiffComments() { return Promise.resolve({}); },
+        getDiffRobotComments() { return Promise.resolve({}); },
+        getDiffDrafts() { return Promise.resolve({}); },
       });
       stub('gr-date-formatter', {
         _loadTimeFormat() { return Promise.resolve(''); },
@@ -60,7 +70,22 @@ limitations under the License.
       stub('gr-diff', {
         reload() { return Promise.resolve(); },
       });
-      element = fixture('basic');
+
+      // Element must be wrapped in an element with direct access to the
+      // comment API.
+      commentApiWrapper = fixture('basic');
+      element = commentApiWrapper.$.fileList;
+      loadCommentSpy = sandbox.spy(commentApiWrapper.$.commentAPI, 'loadAll');
+
+      // Stub methods on the changeComments object after changeComments has
+      // been initalized.
+      commentApiWrapper.loadComments().then(() => {
+        sandbox.stub(element.changeComments, 'getPaths').returns({});
+        sandbox.stub(element.changeComments, 'getCommentsBySideForPath')
+            .returns({meta: {}, left: [], right: []});
+        done();
+      });
+
       element.numFilesShown = 200;
       saveStub = sandbox.stub(element, '_saveReviewedState',
           () => { return Promise.resolve(); });
@@ -71,47 +96,28 @@ limitations under the License.
     });
 
     test('correct number of files are shown', () => {
+      element.fileListIncrement = 300;
       element._files = _.times(500, i => {
         return {__path: '/file' + i, lines_inserted: 9};
       });
       flushAsynchronousOperations();
+
       assert.equal(
           Polymer.dom(element.root).querySelectorAll('.file-row').length,
           element.numFilesShown);
-    });
+      const controlRow = element.$$('.controlRow');
+      assert.isFalse(controlRow.classList.contains('invisible'));
+      assert.equal(element.$.incrementButton.textContent.trim(),
+          'Show 300 more');
+      assert.equal(element.$.showAllButton.textContent.trim(),
+          'Show all 500 files');
 
-    test('get file list', done => {
-      const getChangeFilesStub = sandbox.stub(element.$.restAPI, 'getChangeFiles',
-          () => {
-            return Promise.resolve({
-              '/COMMIT_MSG': {lines_inserted: 9},
-              'tags.html': {lines_deleted: 123},
-              'about.txt': {},
-            });
-          });
+      MockInteractions.tap(element.$.showAllButton);
+      flushAsynchronousOperations();
 
-      element._getFiles().then(files => {
-        const filenames = files.map(f => { return f.__path; });
-        assert.deepEqual(filenames, ['/COMMIT_MSG', 'about.txt', 'tags.html']);
-        assert.deepEqual(files[0], {
-          lines_inserted: 9,
-          lines_deleted: 0,
-          __path: '/COMMIT_MSG',
-        });
-        assert.deepEqual(files[1], {
-          lines_inserted: 0,
-          lines_deleted: 0,
-          __path: 'about.txt',
-        });
-        assert.deepEqual(files[2], {
-          lines_inserted: 0,
-          lines_deleted: 123,
-          __path: 'tags.html',
-        });
-
-        getChangeFilesStub.restore();
-        done();
-      });
+      assert.equal(element.numFilesShown, 500);
+      assert.equal(element._shownFiles.length, 500);
+      assert.isTrue(controlRow.classList.contains('invisible'));
     });
 
     test('calculate totals for patch number', () => {
@@ -281,6 +287,135 @@ limitations under the License.
       }
     });
 
+    test('comment filtering', () => {
+      element.changeComments._comments = {
+        '/COMMIT_MSG': [
+          {patch_set: 1, message: 'Done', updated: '2017-02-08 16:40:49'},
+          {patch_set: 1, message: 'oh hay', updated: '2017-02-09 16:40:49'},
+          {patch_set: 2, message: 'hello', updated: '2017-02-10 16:40:49'},
+        ],
+        'myfile.txt': [
+          {patch_set: 1, message: 'good news!', updated: '2017-02-08 16:40:49'},
+          {patch_set: 2, message: 'wat!?', updated: '2017-02-09 16:40:49'},
+          {patch_set: 2, message: 'hi', updated: '2017-02-10 16:40:49'},
+        ],
+        'unresolved.file': [
+          {
+            patch_set: 2,
+            message: 'wat!?',
+            updated: '2017-02-09 16:40:49',
+            id: '1',
+            unresolved: true,
+          },
+          {
+            patch_set: 2,
+            message: 'hi',
+            updated: '2017-02-10 16:40:49',
+            id: '2',
+            in_reply_to: '1',
+            unresolved: false,
+          },
+          {
+            patch_set: 2,
+            message: 'good news!',
+            updated: '2017-02-08 16:40:49',
+            id: '3',
+            unresolved: true,
+          },
+        ],
+      };
+      element.changeComments._drafts = {
+        '/COMMIT_MSG': [
+          {
+            patch_set: 1,
+            message: 'hi',
+            updated: '2017-02-15 16:40:49',
+            id: '5',
+            unresolved: true,
+          },
+          {
+            patch_set: 1,
+            message: 'fyi',
+            updated: '2017-02-15 16:40:49',
+            id: '6',
+            unresolved: false,
+          },
+        ],
+        'unresolved.file': [
+          {
+            patch_set: 1,
+            message: 'hi',
+            updated: '2017-02-11 16:40:49',
+            id: '4',
+            unresolved: false,
+          },
+        ],
+      };
+
+      assert.equal(
+          element._computeCommentsString(element.changeComments, '1',
+              '/COMMIT_MSG', 'comment'), '2 comments (1 unresolved)');
+      assert.equal(
+          element._computeCommentsStringMobile(element.changeComments, '1'
+          , '/COMMIT_MSG'), '2c');
+      assert.equal(
+          element._computeDraftsString(element.changeComments, '1',
+              'unresolved.file'), '1 draft');
+      assert.equal(
+          element._computeDraftsStringMobile(element.changeComments, '1',
+              'unresolved.file'), '1d');
+      assert.equal(
+          element._computeCommentsString(element.changeComments, '1',
+              'myfile.txt', 'comment'), '1 comment');
+      assert.equal(
+          element._computeCommentsStringMobile(element.changeComments, '1',
+              'myfile.txt'), '1c');
+      assert.equal(
+          element._computeDraftsString(element.changeComments, '1',
+              'myfile.txt'), '');
+      assert.equal(
+          element._computeDraftsStringMobile(element.changeComments, '1',
+              'myfile.txt'), '');
+      assert.equal(
+          element._computeCommentsString(element.changeComments, '1',
+              'file_added_in_rev2.txt', 'comment'), '');
+      assert.equal(
+          element._computeCommentsStringMobile(element.changeComments, '1',
+              'file_added_in_rev2.txt'), '');
+      assert.equal(
+          element._computeDraftsString(element.changeComments, '1',
+              'file_added_in_rev2.txt'), '');
+      assert.equal(
+          element._computeDraftsStringMobile(element.changeComments, '1',
+              'file_added_in_rev2.txt'), '');
+      assert.equal(
+          element._computeCommentsString(element.changeComments, '2',
+              '/COMMIT_MSG', 'comment'), '1 comment');
+      assert.equal(
+          element._computeCommentsStringMobile(element.changeComments, '2',
+              '/COMMIT_MSG'), '1c');
+      assert.equal(
+          element._computeDraftsString(element.changeComments, '1',
+              '/COMMIT_MSG'), '2 drafts');
+      assert.equal(
+          element._computeDraftsStringMobile(element.changeComments, '1',
+              '/COMMIT_MSG'), '2d');
+      assert.equal(
+          element._computeCommentsString(element.changeComments, '2',
+              'myfile.txt', 'comment'), '2 comments');
+      assert.equal(
+          element._computeCommentsStringMobile(element.changeComments, '2',
+              'myfile.txt'), '2c');
+      assert.equal(
+          element._computeDraftsStringMobile(element.changeComments, '2',
+              'myfile.txt'), '');
+      assert.equal(
+          element._computeCommentsString(element.changeComments, '2',
+              'file_added_in_rev2.txt', 'comment'), '');
+      assert.equal(element._computeCommentsString(element.changeComments, '2',
+          'unresolved.file', 'comment'), '3 comments (1 unresolved)');
+    });
+
     suite('keyboard shortcuts', () => {
       setup(() => {
         element._files = [
@@ -324,6 +459,10 @@ limitations under the License.
         // j with a modifier should not move the cursor.
         MockInteractions.pressAndReleaseKeyOn(element, 74, 'shift', 'j');
         assert.equal(element.$.fileCursor.index, 0);
+        // down should not move the cursor.
+        MockInteractions.pressAndReleaseKeyOn(element, 40, null, 'down');
+        assert.equal(element.$.fileCursor.index, 0);
+
         MockInteractions.pressAndReleaseKeyOn(element, 74, null, 'j');
         assert.equal(element.$.fileCursor.index, 1);
         assert.equal(element.selectedIndex, 1);
@@ -335,6 +474,10 @@ limitations under the License.
 
         // k with a modifier should not move the cursor.
         MockInteractions.pressAndReleaseKeyOn(element, 75, 'shift', 'k');
+        assert.equal(element.$.fileCursor.index, 2);
+
+        // up should not move the cursor.
+        MockInteractions.pressAndReleaseKeyOn(element, 38, null, 'down');
         assert.equal(element.$.fileCursor.index, 2);
 
         MockInteractions.pressAndReleaseKeyOn(element, 75, null, 'k');
@@ -385,6 +528,21 @@ limitations under the License.
         }
       });
 
+      test('r key toggles reviewed flag', () => {
+        flushAsynchronousOperations();
+
+        // Default state should be unreviewed.
+        assert.equal(element._reviewed.length, 0);
+
+        // Press the review key to toggle it (set the flag).
+        MockInteractions.pressAndReleaseKeyOn(element, 82, null, 'r');
+        assert.equal(element._reviewed.length, 1);
+
+        // Press the review key to toggle it (clear the flag).
+        MockInteractions.pressAndReleaseKeyOn(element, 82, null, 'r');
+        assert.equal(element._reviewed.length, 0);
+      });
+
       suite('_handleOKey', () => {
         let interact;
 
@@ -427,10 +585,6 @@ limitations under the License.
         test('open from diff cursor', () => {
           element._showInlineDiffs = true;
           assert.deepEqual(interact(), {opened_cursor: true});
-
-          // "Show diffs" mode overrides userPrefs.expand_inline_diffs
-          element._userPrefs = {expand_inline_diffs: true};
-          assert.deepEqual(interact(), {opened_cursor: true});
         });
 
         test('expand when user prefers', () => {
@@ -438,123 +592,8 @@ limitations under the License.
           assert.deepEqual(interact(), {opened_selected: true});
           element._userPrefs = {};
           assert.deepEqual(interact(), {opened_selected: true});
-          element._userPrefs.expand_inline_diffs = true;
-          assert.deepEqual(interact(), {expanded: true});
         });
       });
-    });
-
-    test('comment filtering', () => {
-      const comments = {
-        '/COMMIT_MSG': [
-          {patch_set: 1, message: 'Done', updated: '2017-02-08 16:40:49'},
-          {patch_set: 1, message: 'oh hay', updated: '2017-02-09 16:40:49'},
-          {patch_set: 2, message: 'hello', updated: '2017-02-10 16:40:49'},
-        ],
-        'myfile.txt': [
-          {patch_set: 1, message: 'good news!', updated: '2017-02-08 16:40:49'},
-          {patch_set: 2, message: 'wat!?', updated: '2017-02-09 16:40:49'},
-          {patch_set: 2, message: 'hi', updated: '2017-02-10 16:40:49'},
-        ],
-        'unresolved.file': [
-          {
-            patch_set: 2,
-            message: 'wat!?',
-            updated: '2017-02-09 16:40:49',
-            id: '1',
-            unresolved: true,
-          },
-          {
-            patch_set: 2,
-            message: 'hi',
-            updated: '2017-02-10 16:40:49',
-            id: '2',
-            in_reply_to: '1',
-            unresolved: false,
-          },
-          {
-            patch_set: 2,
-            message: 'good news!',
-            updated: '2017-02-08 16:40:49',
-            id: '3',
-            unresolved: true,
-          },
-        ],
-      };
-      const drafts = {
-        'unresolved.file': [
-          {
-            patch_set: 2,
-            message: 'hi',
-            updated: '2017-02-11 16:40:49',
-            id: '4',
-            in_reply_to: '3',
-            unresolved: false,
-          },
-        ],
-      };
-      assert.equal(
-          element._computeCountString(comments, '1', '/COMMIT_MSG', 'comment'),
-          '2 comments');
-      assert.equal(
-          element._computeCommentsStringMobile(comments, '1', '/COMMIT_MSG'),
-          '2c');
-      assert.equal(
-          element._computeDraftsStringMobile(comments, '1', '/COMMIT_MSG'),
-          '2d');
-      assert.equal(
-          element._computeCountString(comments, '1', 'myfile.txt', 'comment'),
-          '1 comment');
-      assert.equal(
-          element._computeCommentsStringMobile(comments, '1', 'myfile.txt'),
-          '1c');
-      assert.equal(
-          element._computeDraftsStringMobile(comments, '1', 'myfile.txt'),
-          '1d');
-      assert.equal(
-          element._computeCountString(comments, '1',
-              'file_added_in_rev2.txt', 'comment'), '');
-      assert.equal(
-          element._computeCommentsStringMobile(comments, '1',
-              'file_added_in_rev2.txt'), '');
-      assert.equal(
-          element._computeDraftsStringMobile(comments, '1',
-              'file_added_in_rev2.txt'), '');
-      assert.equal(
-          element._computeCountString(comments, '2', '/COMMIT_MSG', 'comment'),
-          '1 comment');
-      assert.equal(
-          element._computeCommentsStringMobile(comments, '2', '/COMMIT_MSG'),
-          '1c');
-      assert.equal(
-          element._computeDraftsStringMobile(comments, '2', '/COMMIT_MSG'),
-          '1d');
-      assert.equal(
-          element._computeCountString(comments, '2', 'myfile.txt', 'comment'),
-          '2 comments');
-      assert.equal(
-          element._computeCommentsStringMobile(comments, '2', 'myfile.txt'),
-          '2c');
-      assert.equal(
-          element._computeDraftsStringMobile(comments, '2', 'myfile.txt'),
-          '2d');
-      assert.equal(
-          element._computeCountString(comments, '2',
-              'file_added_in_rev2.txt', 'comment'), '');
-      assert.equal(element._computeCountString(comments, '2',
-          'unresolved.file', 'comment'), '3 comments');
-      assert.equal(
-          element._computeUnresolvedString(comments, [], 2, 'myfile.txt'), '');
-      assert.equal(
-          element.computeUnresolvedNum(comments, [], 2, 'myfile.txt'), 0);
-      assert.equal(
-          element._computeUnresolvedString(comments, [], 2, 'unresolved.file'),
-          '(1 unresolved)');
-      assert.equal(
-          element.computeUnresolvedNum(comments, [], 2, 'unresolved.file'), 1);
-      assert.equal(
-          element._computeUnresolvedString(comments, drafts, 2,
-              'unresolved.file'), '');
     });
 
     test('computed properties', () => {
@@ -562,18 +601,9 @@ limitations under the License.
       assert.equal(element._computeFileStatus(undefined), 'M');
       assert.equal(element._computeFileStatus(null), 'M');
 
-      assert.equal(element._computeFileDisplayName('/foo/bar/baz'),
-          '/foo/bar/baz');
-      assert.equal(element._computeFileDisplayName('/COMMIT_MSG'),
-          'Commit message');
-
       assert.equal(element._computeClass('clazz', '/foo/bar/baz'), 'clazz');
       assert.equal(element._computeClass('clazz', '/COMMIT_MSG'),
           'clazz invisible');
-      assert.equal(element._computeExpandInlineClass(
-          {expand_inline_diffs: true}), 'expandInline');
-      assert.equal(element._computeExpandInlineClass(
-        {expand_inline_diffs: false}), '');
     });
 
     test('file review status', () => {
@@ -594,29 +624,81 @@ limitations under the License.
       flushAsynchronousOperations();
       const fileRows =
           Polymer.dom(element.root).querySelectorAll('.row:not(.header)');
-      const commitMsg = fileRows[0].querySelector(
-          'input.reviewed[type="checkbox"]');
-      const fileAdded = fileRows[1].querySelector(
-          'input.reviewed[type="checkbox"]');
-      const myFile = fileRows[2].querySelector(
-          'input.reviewed[type="checkbox"]');
+      const checkSelector = 'input.reviewed[type="checkbox"]';
+      const commitMsg = fileRows[0].querySelector(checkSelector);
+      const fileAdded = fileRows[1].querySelector(checkSelector);
+      const myFile = fileRows[2].querySelector(checkSelector);
 
       assert.isTrue(commitMsg.checked);
       assert.isFalse(fileAdded.checked);
       assert.isTrue(myFile.checked);
 
-      MockInteractions.tap(commitMsg);
+      const commitReviewLabel = fileRows[0].querySelector('.reviewedLabel');
+      const markReviewLabel = commitMsg.nextElementSibling;
+      assert.isTrue(commitReviewLabel.classList.contains('isReviewed'));
+      assert.equal(markReviewLabel.textContent, 'MARK UNREVIEWED');
+
+      const tapSpy = sandbox.spy(element, '_handleFileListTap');
+      MockInteractions.tap(markReviewLabel);
       assert.isTrue(saveStub.lastCall.calledWithExactly('/COMMIT_MSG', false));
-      MockInteractions.tap(commitMsg);
+      assert.isFalse(commitReviewLabel.classList.contains('isReviewed'));
+      assert.equal(markReviewLabel.textContent, 'MARK REVIEWED');
+      assert.isTrue(tapSpy.lastCall.args[0].defaultPrevented);
+
+      MockInteractions.tap(markReviewLabel);
       assert.isTrue(saveStub.lastCall.calledWithExactly('/COMMIT_MSG', true));
+      assert.isTrue(commitReviewLabel.classList.contains('isReviewed'));
+      assert.equal(markReviewLabel.textContent, 'MARK UNREVIEWED');
+      assert.isTrue(tapSpy.lastCall.args[0].defaultPrevented);
+    });
+
+    test('_handleFileListTap', () => {
+      element._files = [
+        {__path: '/COMMIT_MSG'},
+        {__path: 'f1.txt'},
+        {__path: 'f2.txt'},
+      ];
+      element.changeNum = '42';
+      element.patchRange = {
+        basePatchNum: 'PARENT',
+        patchNum: '2',
+      };
+
+      const tapSpy = sandbox.spy(element, '_handleFileListTap');
+      const reviewStub = sandbox.stub(element, '_reviewFile');
+      const toggleExpandSpy = sandbox.spy(element, '_togglePathExpanded');
+
+      const row = Polymer.dom(element.root)
+          .querySelector('.row[data-path="f1.txt"]');
+
+      // Click on the expand button, resulting in _togglePathExpanded being
+      // called and not resulting in a call to _reviewFile.
+      row.querySelector('div.show-hide').click();
+      assert.isTrue(tapSpy.calledOnce);
+      assert.isTrue(toggleExpandSpy.calledOnce);
+      assert.isFalse(reviewStub.called);
+
+      // Click inside the diff. This should result in no additional calls to
+      // _togglePathExpanded or _reviewFile.
+      Polymer.dom(element.root).querySelector('gr-diff').click();
+      assert.isTrue(tapSpy.calledTwice);
+      assert.isTrue(toggleExpandSpy.calledOnce);
+      assert.isFalse(reviewStub.called);
+
+      // Click the reviewed checkbox, resulting in a call to _reviewFile, but
+      // no additional call to _togglePathExpanded.
+      row.querySelector('.markReviewed').click();
+      assert.isTrue(tapSpy.calledThrice);
+      assert.isTrue(toggleExpandSpy.calledOnce);
+      assert.isTrue(reviewStub.calledOnce);
     });
 
     test('patch set from revisions', () => {
       const expected = [
-        {num: 1, desc: 'test'},
-        {num: 2, desc: 'test'},
-        {num: 3, desc: 'test'},
         {num: 4, desc: 'test'},
+        {num: 3, desc: 'test'},
+        {num: 2, desc: 'test'},
+        {num: 1, desc: 'test'},
       ];
       const patchNums = element.computeAllPatchSets({
         revisions: {
@@ -630,36 +712,6 @@ limitations under the License.
       for (let i = 0; i < expected.length; i++) {
         assert.deepEqual(patchNums[i], expected[i]);
       }
-    });
-
-    test('diff against dropdown', done => {
-      const navStub = sandbox.stub(Gerrit.Nav, 'navigateToChange');
-      element.changeNum = '42';
-      element.patchRange = {
-        basePatchNum: 'PARENT',
-        patchNum: '3',
-      };
-      element.change = {
-        revisions: {
-          rev1: {_number: 1},
-          rev2: {_number: 2},
-          rev3: {_number: 3},
-        },
-      };
-      flush(() => {
-        const selectEl = element.$.patchChange;
-        assert.equal(selectEl.value, 'PARENT');
-        assert.isTrue(element.$$('option[value="3"]').hasAttribute('disabled'));
-        selectEl.addEventListener('change', () => {
-          assert.equal(selectEl.value, '2');
-          assert(navStub.lastCall.calledWithExactly(element.change, '3', '2'),
-              'Should navigate to /c/42/2..3');
-          navStub.restore();
-          done();
-        });
-        selectEl.value = '2';
-        element.fire('change', {}, {node: selectEl});
-      });
     });
 
     test('checkbox shows/hides diff inline', () => {
@@ -708,56 +760,9 @@ limitations under the License.
       flushAsynchronousOperations();
       const diffDisplay = element.diffs[0];
       element._userPrefs = {default_diff_view: 'SIDE_BY_SIDE'};
-      assert.equal(element.diffViewMode, 'SIDE_BY_SIDE');
-      assert.equal(diffDisplay.viewMode, 'SIDE_BY_SIDE');
       element.set('diffViewMode', 'UNIFIED_DIFF');
       assert.equal(diffDisplay.viewMode, 'UNIFIED_DIFF');
       assert.isTrue(element._updateDiffPreferences.called);
-    });
-
-    test('diff mode selector initializes from preferences', () => {
-      let resolvePrefs;
-      const prefsPromise = new Promise(resolve => {
-        resolvePrefs = resolve;
-      });
-      sandbox.stub(element, '_getPreferences').returns(prefsPromise);
-
-      // Attach a new gr-file-list so we can intercept the preferences fetch.
-      const view = document.createElement('gr-file-list');
-      const select = view.$.modeSelect;
-      fixture('blank').appendChild(view);
-      flushAsynchronousOperations();
-
-      // At this point the diff mode doesn't yet have the user's preference.
-      assert.equal(select.value, 'SIDE_BY_SIDE');
-
-      // Receive the overriding preference.
-      resolvePrefs({default_diff_view: 'UNIFIED'});
-      flushAsynchronousOperations();
-      assert.equal(select.value, 'SIDE_BY_SIDE');
-      document.getElementById('blank').restore();
-    });
-
-    test('show/hide diffs disabled for large amounts of files', done => {
-      const computeSpy = sandbox.spy(element, '_fileListActionsVisible');
-      element._files = [];
-      element.changeNum = '42';
-      element.patchRange = {
-        basePatchNum: 'PARENT',
-        patchNum: '2',
-      };
-      element.$.fileCursor.setCursorAtIndex(0);
-      flush(() => {
-        assert.isTrue(computeSpy.lastCall.returnValue);
-        const arr = [];
-        _.times(element._maxFilesForBulkActions + 1, () => {
-          arr.push({__path: 'myfile.txt'});
-        });
-        element._files = arr;
-        element.numFilesShown = arr.length;
-        assert.isFalse(computeSpy.lastCall.returnValue);
-        done();
-      });
     });
 
     test('expanded attribute not set on path when not expanded', () => {
@@ -767,20 +772,7 @@ limitations under the License.
       assert.isNotOk(element.$$('.expanded'));
     });
 
-    test('_getDiffViewMode', () => {
-      // No user prefs or diff view mode set.
-      assert.equal(element._getDiffViewMode(), 'SIDE_BY_SIDE');
-      // User prefs but no diff view mode set.
-      element.diffViewMode = null;
-      element._userPrefs = {default_diff_view: 'UNIFIED_DIFF'};
-      assert.equal(
-          element._getDiffViewMode(null, element._userPrefs), 'UNIFIED_DIFF');
-      // User prefs and diff view mode set.
-      element.diffViewMode = 'SIDE_BY_SIDE';
-      assert.equal(element._getDiffViewMode(
-          element.diffViewMode, element._userPrefs), 'SIDE_BY_SIDE');
-    });
-    test('expand_inline_diffs user preference', () => {
+    test('tapping row ignores links', () => {
       element._files = [
         {__path: '/COMMIT_MSG'},
       ];
@@ -792,7 +784,7 @@ limitations under the License.
       sandbox.stub(element, '_expandedPathsChanged');
       flushAsynchronousOperations();
       const commitMsgFile = Polymer.dom(element.root)
-          .querySelectorAll('.row:not(.header) a')[0];
+          .querySelectorAll('.row:not(.header) a.pathLink')[0];
 
       // Remove href attribute so the app doesn't route to a diff view
       commitMsgFile.removeAttribute('href');
@@ -802,32 +794,53 @@ limitations under the License.
       flushAsynchronousOperations();
       assert(togglePathSpy.notCalled, 'file is opened as diff view');
       assert.isNotOk(element.$$('.expanded'));
-
-      element._userPrefs = {expand_inline_diffs: true};
-      flushAsynchronousOperations();
-      MockInteractions.tap(commitMsgFile);
-      flushAsynchronousOperations();
-      assert(togglePathSpy.calledOnce, 'file is expanded');
-      assert.isOk(element.$$('.expanded'));
+      assert.notEqual(getComputedStyle(element.$$('.show-hide')).display,
+          'none');
     });
 
     test('_togglePathExpanded', () => {
       const path = 'path/to/my/file.txt';
-      element.files = [{__path: path}];
-      const renderStub = sandbox.stub(element, '_renderInOrder')
-          .returns(Promise.resolve());
+      element._files = [{__path: path}];
+      const renderSpy = sandbox.spy(element, '_renderInOrder');
+      const collapseStub = sandbox.stub(element, '_clearCollapsedDiffs');
 
+      assert.equal(element.$$('iron-icon').icon, 'gr-icons:expand-more');
       assert.equal(element._expandedFilePaths.length, 0);
       element._togglePathExpanded(path);
       flushAsynchronousOperations();
+      assert.equal(collapseStub.lastCall.args[0].length, 0);
+      assert.equal(element.$$('iron-icon').icon, 'gr-icons:expand-less');
 
-      assert.equal(renderStub.callCount, 1);
+      assert.equal(renderSpy.callCount, 1);
       assert.include(element._expandedFilePaths, path);
       element._togglePathExpanded(path);
       flushAsynchronousOperations();
 
-      assert.equal(renderStub.callCount, 2);
+      assert.equal(element.$$('iron-icon').icon, 'gr-icons:expand-more');
+      assert.equal(renderSpy.callCount, 2);
       assert.notInclude(element._expandedFilePaths, path);
+      assert.equal(collapseStub.lastCall.args[0].length, 1);
+    });
+
+    test('expandAllDiffs and collapseAllDiffs', () => {
+      const collapseStub = sandbox.stub(element, '_clearCollapsedDiffs');
+      const cursorUpdateStub = sandbox.stub(element.$.diffCursor,
+          'handleDiffUpdate');
+
+      const path = 'path/to/my/file.txt';
+      element._files = [{__path: path}];
+      element.expandAllDiffs();
+      flushAsynchronousOperations();
+      assert.isTrue(element._showInlineDiffs);
+      assert.isTrue(cursorUpdateStub.calledOnce);
+      assert.equal(collapseStub.lastCall.args[0].length, 0);
+
+      element.collapseAllDiffs();
+      flushAsynchronousOperations();
+      assert.equal(element._expandedFilePaths.length, 0);
+      assert.isFalse(element._showInlineDiffs);
+      assert.isTrue(cursorUpdateStub.calledTwice);
+      assert.equal(collapseStub.lastCall.args[0].length, 1);
     });
 
     test('_expandedPathsChanged', done => {
@@ -845,39 +858,27 @@ limitations under the License.
       element.push('_expandedFilePaths', path);
     });
 
-    suite('_handleFileListTap', () => {
-      function testForModifier(modifier) {
-        const e = {preventDefault() {}};
-        e.detail = {sourceEvent: {}};
-        e.target = {
-          dataset: {path: '/test'},
-          classList: element.classList,
-        };
-
-        e.detail.sourceEvent[modifier] = true;
-
-        const togglePathStub = sandbox.stub(element, '_togglePathExpanded');
-        element._userPrefs = {expand_inline_diffs: true};
-
-        element._handleFileListTap(e);
-        assert.isFalse(togglePathStub.called);
-
-        e.detail.sourceEvent[modifier] = false;
-        element._handleFileListTap(e);
-        assert.equal(togglePathStub.callCount, 1);
-
-        element._userPrefs = {expand_inline_diffs: false};
-        element._handleFileListTap(e);
-        assert.equal(togglePathStub.callCount, 1);
-      }
-
-      test('_handleFileListTap meta', () => {
-        testForModifier('metaKey');
-      });
-
-      test('_handleFileListTap ctrl', () => {
-        testForModifier('ctrlKey');
-      });
+    test('filesExpanded value updates to correct enum', () => {
+      element._files = [{__path: 'foo.bar'}, {__path: 'baz.bar'}];
+      flushAsynchronousOperations();
+      assert.equal(element.filesExpanded,
+          GrFileListConstants.FilesExpandedState.NONE);
+      element.push('_expandedFilePaths', 'baz.bar');
+      flushAsynchronousOperations();
+      assert.equal(element.filesExpanded,
+          GrFileListConstants.FilesExpandedState.SOME);
+      element.push('_expandedFilePaths', 'foo.bar');
+      flushAsynchronousOperations();
+      assert.equal(element.filesExpanded,
+          GrFileListConstants.FilesExpandedState.ALL);
+      element.collapseAllDiffs();
+      flushAsynchronousOperations();
+      assert.equal(element.filesExpanded,
+          GrFileListConstants.FilesExpandedState.NONE);
+      element.expandAllDiffs();
+      flushAsynchronousOperations();
+      assert.equal(element.filesExpanded,
+          GrFileListConstants.FilesExpandedState.ALL);
     });
 
     test('_renderInOrder', done => {
@@ -905,6 +906,7 @@ limitations under the License.
       element._renderInOrder(['p2', 'p1', 'p0'], diffs, 3)
           .then(() => {
             assert.isFalse(reviewStub.called);
+            assert.isTrue(loadCommentSpy.called);
             done();
           });
     });
@@ -941,6 +943,83 @@ limitations under the License.
             done();
           });
     });
+
+    test('_loadingChanged fired from reload in debouncer', done => {
+      element.changeNum = 123;
+      element.patchRange = {patchNum: 12};
+      element._files = [{__path: 'foo.bar'}];
+
+      element.reload().then(() => {
+        assert.isFalse(element._loading);
+        element.flushDebouncer('loading-change');
+        assert.isFalse(element.classList.contains('loading'));
+        done();
+      });
+      assert.isTrue(element._loading);
+      assert.isFalse(element.classList.contains('loading'));
+      element.flushDebouncer('loading-change');
+      assert.isTrue(element.classList.contains('loading'));
+    });
+
+    test('_loadingChanged does not set class when there are no files', () => {
+      element.changeNum = 123;
+      element.patchRange = {patchNum: 12};
+      element.reload();
+      assert.isTrue(element._loading);
+      element.flushDebouncer('loading-change');
+      assert.isFalse(element.classList.contains('loading'));
+    });
+
+    test('no execute _computeDiffURL before patchNum is knwon', done => {
+      const urlStub = sandbox.stub(element, '_computeDiffURL');
+      element.change = {_number: 123};
+      element.patchRange = {patchNum: undefined, basePatchNum: 'PARENT'};
+      element._files = [{__path: 'foo/bar.cpp'}];
+      flush(() => {
+        assert.isFalse(urlStub.called);
+        element.set('patchRange.patchNum', 4);
+        flush(() => {
+          assert.isTrue(urlStub.called);
+          done();
+        });
+      });
+    });
+
+    suite('size bars', () => {
+      test('_computeSizeBarScale', () => {
+        assert.isUndefined(element._computeSizeBarScale(null));
+        assert.isUndefined(element._computeSizeBarScale({}));
+        assert.equal(element._computeSizeBarScale({base: []}), 0);
+
+        const files = [
+          {__path: 'foo', lines_inserted: 12, lines_deleted: 15},
+          {__path: 'bar', lines_inserted: 13, lines_deleted: 2},
+        ];
+        assert.equal(element._computeSizeBarScale({base: files}), 15);
+
+        files.push({__path: 'baz', lines_inserted: 123, lines_deleted: 0});
+        assert.equal(element._computeSizeBarScale({base: files}), 123);
+
+        files.push(
+            {__path: '/COMMIT_MSG', lines_inserted: 12345, lines_deleted: 0});
+        assert.equal(element._computeSizeBarScale({base: files}), 123);
+      });
+
+      test('_computeSizeBarWidth', () => {
+        assert.equal(element._computeSizeBarWidth(1000, 1000), 50);
+        assert.equal(element._computeSizeBarWidth(1000, 1), 1.5);
+        assert.equal(element._computeSizeBarWidth(2, 1), 25);
+      });
+
+      test('_computeSizeBarsClass', () => {
+        assert.equal(element._computeSizeBarsClass(false, 'foo/bar.baz'),
+            'sizeBars desktop hide');
+        assert.equal(element._computeSizeBarsClass(true, '/COMMIT_MSG'),
+            'sizeBars desktop invisible');
+        assert.equal(element._computeSizeBarsClass(true, 'foo/bar.baz'),
+            'sizeBars desktop ');
+      });
+    });
   });
 
   suite('gr-file-list inline diff tests', () => {
@@ -950,7 +1029,7 @@ limitations under the License.
     const setupDiff = function(diff) {
       const mock = document.createElement('mock-diff-response');
       diff._diff = mock.diffResponse;
-      diff._comments = {
+      diff.comments = {
         left: [],
         right: [],
       };
@@ -986,11 +1065,14 @@ limitations under the License.
       return diffs;
     };
 
-    setup(() => {
+    setup(done => {
       sandbox = sinon.sandbox.create();
       stub('gr-rest-api-interface', {
         getLoggedIn() { return Promise.resolve(true); },
         getPreferences() { return Promise.resolve({}); },
+        getDiffComments() { return Promise.resolve({}); },
+        getDiffRobotComments() { return Promise.resolve({}); },
+        getDiffDrafts() { return Promise.resolve({}); },
       });
       stub('gr-date-formatter', {
         _loadTimeFormat() { return Promise.resolve(''); },
@@ -998,7 +1080,21 @@ limitations under the License.
       stub('gr-diff', {
         reload() { return Promise.resolve(); },
       });
-      element = fixture('basic');
+
+      // Element must be wrapped in an element with direct access to the
+      // comment API.
+      commentApiWrapper = fixture('basic');
+      element = commentApiWrapper.$.fileList;
+      loadCommentSpy = sandbox.spy(commentApiWrapper.$.commentAPI, 'loadAll');
+
+      // Stub methods on the changeComments object after changeComments has
+      // been initalized.
+      commentApiWrapper.loadComments().then(() => {
+        sandbox.stub(element.changeComments, 'getPaths').returns({});
+        sandbox.stub(element.changeComments, 'getCommentsBySideForPath')
+            .returns({meta: {}, left: [], right: []});
+        done();
+      });
       element.numFilesShown = 75;
       element.selectedIndex = 0;
       element._files = [
@@ -1112,6 +1208,7 @@ limitations under the License.
       let nextChunkStub;
       let fileRows;
       setup(() => {
+        sandbox.stub(element, '_renderInOrder').returns(Promise.resolve());
         nKeySpy = sandbox.spy(element, '_handleNKey');
         nextCommentStub = sandbox.stub(element.$.diffCursor,
             'moveToNextCommentThread');
@@ -1207,7 +1304,45 @@ limitations under the License.
       element._handleEscKey(mockEvent);
       assert.isFalse(element._displayLine);
     });
-  });
 
+    suite('editMode behavior', () => {
+      test('reviewed checkbox', () => {
+        const alertStub = sandbox.stub();
+        const saveReviewStub = sandbox.stub(element, '_saveReviewedState');
+
+        element.addEventListener('show-alert', alertStub);
+        element.editMode = false;
+        MockInteractions.pressAndReleaseKeyOn(element, 82, null, 'r');
+        assert.isFalse(alertStub.called);
+        assert.isTrue(saveReviewStub.calledOnce);
+
+        element.editMode = true;
+        flushAsynchronousOperations();
+
+        MockInteractions.pressAndReleaseKeyOn(element, 82, null, 'r');
+        assert.isTrue(alertStub.called);
+        assert.isTrue(saveReviewStub.calledOnce);
+      });
+
+      test('_getReviewedFiles does not call API', () => {
+        const apiSpy = sandbox.spy(element.$.restAPI, 'getReviewedFiles');
+        element.editMode = true;
+        return element._getReviewedFiles().then(files => {
+          assert.equal(files.length, 0);
+          assert.isFalse(apiSpy.called);
+        });
+      });
+    });
+
+    test('editing actions', () => {
+      element.editMode = true;
+      const editControls =
+          Polymer.dom(element.root).querySelectorAll('.row:not(.header)')
+            .map(row => row.querySelector('gr-edit-file-controls'));
+
+      // Commit message should not have edit controls.
+      assert.isTrue(editControls[0].classList.contains('invisible'));
+    });
+  });
   a11ySuite('basic');
 </script>

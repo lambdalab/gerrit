@@ -35,8 +35,8 @@
         type: Array,
         value() { return []; },
       },
-      comments: Object,
-      projectConfig: Object,
+      changeComments: Object,
+      projectName: String,
       showReplyButtons: {
         type: Boolean,
         value: false,
@@ -175,12 +175,6 @@
       this.handleExpandCollapse(!this._expanded);
     },
 
-    _handleAutomatedMessageToggleTap(e) {
-      e.preventDefault();
-
-      this._hideAutomated = !this._hideAutomated;
-    },
-
     _handleScrollTo(e) {
       this.scrollToMessage(e.detail.message.id);
     },
@@ -199,19 +193,18 @@
       return expanded ? 'Collapse all' : 'Expand all';
     },
 
-    _computeAutomatedToggleText(hideAutomated) {
-      return hideAutomated ? 'Show all messages' : 'Show comments only';
-    },
-
     /**
      * Computes message author's file comments for change's message.
      * Method uses this.messages to find next message and relies on messages
      * to be sorted by date field descending.
-     * @param {!Object} comments Hash of arrays of comments, filename as key.
+     * @param {!Object} changeComments changeComment object, which includes
+     *     a method to get all published comments (including robot comments),
+     *     which returns a Hash of arrays of comments, filename as key.
      * @param {!Object} message
      * @return {!Object} Hash of arrays of comments, filename as key.
      */
-    _computeCommentsForMessage(comments, message) {
+    _computeCommentsForMessage(changeComments, message) {
+      const comments = changeComments.getAllPublishedComments();
       if (message._index === undefined || !comments || !this.messages) {
         return [];
       }

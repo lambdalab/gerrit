@@ -55,12 +55,14 @@
       /**
        * ChangeInfo objects grouped into arrays. The sections and changes
        * properties should not be used together.
+       *
+       * @type {!Array<{
+       *   sectionName: string,
+       *   query: string,
+       *   results: !Array<!Object>
+       * }>}
        */
       sections: {
-        type: Array,
-        value() { return []; },
-      },
-      sectionMetadata: {
         type: Array,
         value() { return []; },
       },
@@ -86,6 +88,7 @@
         value() { return document.body; },
       },
       changeTableColumns: Array,
+      visibleChangeTableColumns: Array,
     },
 
     behaviors: [
@@ -100,9 +103,32 @@
       'j': '_handleJKey',
       'k': '_handleKKey',
       'n ]': '_handleNKey',
-      'o enter': '_handleEnterKey',
+      'o': '_handleOKey',
       'p [': '_handlePKey',
       'shift+r': '_handleRKey',
+      's': '_handleSKey',
+    },
+
+    listeners: {
+      keydown: '_scopedKeydownHandler',
+    },
+
+    observers: [
+      '_sectionsChanged(sections.*)',
+    ],
+
+    /**
+     * Iron-a11y-keys-behavior catches keyboard events globally. Some keyboard
+     * events must be scoped to a component level (e.g. `enter`) in order to not
+     * override native browser functionality.
+     *
+     * Context: Issue 7294
+     */
+    _scopedKeydownHandler(e) {
+      if (e.keyCode === 13) {
+        // Enter.
+        this._handleOKey(e);
+      }
     },
 
     attached() {
@@ -150,10 +176,9 @@
       const nonExistingLabel = function(item) {
         return !labels.includes(item);
       };
-      for (let i = 0; i < sections.length; i++) {
-        const section = sections[i];
-        for (let j = 0; j < section.length; j++) {
-          const change = section[j];
+      for (const section of sections) {
+        if (!section.results) { continue; }
+        for (const change of section.results) {
           if (!change.labels) { continue; }
           const currentLabels = Object.keys(change.labels);
           labels = labels.concat(currentLabels.filter(nonExistingLabel));
@@ -163,30 +188,37 @@
     },
 
     _computeLabelShortcut(labelName) {
-      return labelName.replace(/[a-z-]/g, '');
+      return labelName.split('-').reduce((a, i) => {
+        return a + i[0].toUpperCase();
+      }, '');
     },
 
     _changesChanged(changes) {
-      this.sections = changes ? [changes] : [];
+      this.sections = changes ? [{results: changes}] : [];
     },
 
-    _sectionTitle(sectionIndex) {
-      if (sectionIndex > this.sectionMetadata.length - 1) { return null; }
-      return this.sectionMetadata[sectionIndex].name;
+    _sectionHref(query) {
+      return Gerrit.Nav.getUrlForSearchQuery(query);
     },
 
-    _sectionHref(sectionIndex) {
-      if (sectionIndex > this.sectionMetadata.length - 1) { return null; }
-      const query = this.sectionMetadata[sectionIndex].query;
-      return `${this.getBaseUrl()}/q/${this.encodeURL(query, true)}`;
-    },
-
-    _computeItemSelected(index, sectionIndex, selectedIndex) {
+    /**
+     * Maps an index local to a particular section to the absolute index
+     * across all the changes on the page.
+     *
+     * @param {number} sectionIndex index of section
+     * @param {number} localIndex index of row within section
+     * @return {number} absolute index of row in the aggregate dashboard
+     */
+    _computeItemAbsoluteIndex(sectionIndex, localIndex) {
       let idx = 0;
       for (let i = 0; i < sectionIndex; i++) {
-        idx += this.sections[i].length;
+        idx += this.sections[i].results.length;
       }
-      idx += index;
+      return idx + localIndex;
+    },
+
+    _computeItemSelected(sectionIndex, index, selectedIndex) {
+      const idx = this._computeItemAbsoluteIndex(sectionIndex, index);
       return idx == selectedIndex;
     },
 
@@ -201,23 +233,12 @@
       return account._account_id === change.assignee._account_id;
     },
 
-    _getAggregatesectionsLen(sections) {
-      sections = sections || [];
-      let len = 0;
-      for (const section of this.sections) {
-        len += section.length;
-      }
-      return len;
-    },
-
     _handleJKey(e) {
       if (this.shouldSuppressKeyboardShortcut(e) ||
           this.modifierPressed(e)) { return; }
 
       e.preventDefault();
-      const len = this._getAggregatesectionsLen(this.sections);
-      if (this.selectedIndex === len - 1) { return; }
-      this.selectedIndex += 1;
+      this.$.cursor.next();
     },
 
     _handleKKey(e) {
@@ -225,51 +246,83 @@
           this.modifierPressed(e)) { return; }
 
       e.preventDefault();
-      if (this.selectedIndex === 0) { return; }
-      this.selectedIndex -= 1;
+      this.$.cursor.previous();
     },
 
-    _handleEnterKey(e) {
+    _handleOKey(e) {
       if (this.shouldSuppressKeyboardShortcut(e) ||
           this.modifierPressed(e)) { return; }
 
       e.preventDefault();
-      page.show(this._changeURLForIndex(this.selectedIndex));
+      Gerrit.Nav.navigateToChange(this._changeForIndex(this.selectedIndex));
     },
 
     _handleNKey(e) {
-      if (this.shouldSuppressKeyboardShortcut(e)) { return; }
+      if (this.shouldSuppressKeyboardShortcut(e) ||
+          this.modifierPressed(e) && !this.isModifierPressed(e, 'shiftKey')) {
+        return;
+      }
 
       e.preventDefault();
       this.fire('next-page');
     },
 
     _handlePKey(e) {
-      if (this.shouldSuppressKeyboardShortcut(e)) { return; }
+      if (this.shouldSuppressKeyboardShortcut(e) ||
+          this.modifierPressed(e) && !this.isModifierPressed(e, 'shiftKey')) {
+        return;
+      }
 
       e.preventDefault();
       this.fire('previous-page');
     },
 
     _handleRKey(e) {
-      if (this.shouldSuppressKeyboardShortcut(e)) {
-        return;
-      }
+      if (this.shouldSuppressKeyboardShortcut(e) ||
+          this.modifierPressed(e)) { return; }
 
       e.preventDefault();
       window.location.reload();
     },
 
-    _changeURLForIndex(index) {
+    _handleSKey(e) {
+      if (this.shouldSuppressKeyboardShortcut(e) ||
+          this.modifierPressed(e)) { return; }
+
+      e.preventDefault();
+      this._toggleStarForIndex(this.selectedIndex);
+    },
+
+    _toggleStarForIndex(index) {
+      const changeEls = this._getListItems();
+      if (index >= changeEls.length || !changeEls[index]) {
+        return;
+      }
+
+      const changeEl = changeEls[index];
+      const change = changeEl.change;
+      const newVal = !change.starred;
+      changeEl.set('change.starred', newVal);
+      this.$.restAPI.saveChangeStarred(change._number, newVal);
+    },
+
+    _changeForIndex(index) {
       const changeEls = this._getListItems();
       if (index < changeEls.length && changeEls[index]) {
-        return changeEls[index].changeURL;
+        return changeEls[index].change;
       }
-      return '';
+      return null;
     },
 
     _getListItems() {
       return Polymer.dom(this.root).querySelectorAll('gr-change-list-item');
+    },
+
+    _sectionsChanged() {
+      // Flush DOM operations so that the list item elements will be loaded.
+      Polymer.dom.flush();
+      this.$.cursor.stops = this._getListItems();
+      this.$.cursor.moveToStart();
     },
   });
 })();

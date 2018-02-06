@@ -5,15 +5,16 @@ load(
     "GWT_PLUGIN_DEPS_NEVERLINK",
     "GWT_TRANSITIVE_DEPS",
     "GWT_COMPILER_ARGS",
-    "PLUGIN_DEPS_NEVERLINK",
     "GWT_JVM_ARGS",
     "gwt_binary",
 )
 
-PLUGIN_DEPS = ["//gerrit-plugin-api:lib"]
+PLUGIN_DEPS = ["//plugins:plugin-lib"]
+
+PLUGIN_DEPS_NEVERLINK = ["//plugins:plugin-lib-neverlink"]
 
 PLUGIN_TEST_DEPS = [
-    "//gerrit-acceptance-framework:lib",
+    "//java/com/google/gerrit/acceptance:lib",
     "//lib/bouncycastle:bcpg",
     "//lib/bouncycastle:bcpkix",
     "//lib/bouncycastle:bcprov",
@@ -44,10 +45,7 @@ def gerrit_plugin(
 
   native.java_binary(
     name = '%s__non_stamped' % name,
-    deploy_manifest_lines = manifest_entries + [
-      "Gerrit-ApiType: plugin",
-      "Implementation-Vendor: Gerrit Code Review",
-    ],
+    deploy_manifest_lines = manifest_entries + ["Gerrit-ApiType: plugin"],
     main_class = 'Dummy',
     runtime_deps = [
       ':%s__plugin' % name,
@@ -59,7 +57,7 @@ def gerrit_plugin(
   if gwt_module:
     native.java_library(
       name = name + '__gwt_module',
-      resources = list(set(srcs + resources)),
+      resources = depset(srcs + resources).to_list(),
       runtime_deps = deps + GWT_PLUGIN_DEPS,
       visibility = ['//visibility:public'],
       **kwargs

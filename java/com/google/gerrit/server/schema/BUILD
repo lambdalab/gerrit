@@ -1,0 +1,27 @@
+java_library(
+    name = "schema",
+    srcs = glob(
+        ["**/*.java"],
+    ),
+    visibility = ["//visibility:public"],
+    deps = [
+        "//java/com/google/gerrit/common:annotations",
+        "//java/com/google/gerrit/common:server",
+        "//java/com/google/gerrit/extensions:api",
+        "//java/com/google/gerrit/lifecycle",
+        "//java/com/google/gerrit/metrics",
+        "//java/com/google/gerrit/reviewdb:server",
+        "//java/com/google/gerrit/server",
+        "//java/org/eclipse/jgit:server",
+        "//lib:guava",
+        "//lib:gwtorm",
+        "//lib/auto:auto-value",
+        "//lib/commons:dbcp",
+        "//lib/guice",
+        "//lib/jgit/org.eclipse.jgit.archive:jgit-archive",
+        "//lib/jgit/org.eclipse.jgit:jgit",
+        "//lib/log:api",
+        "//lib/log:jsonevent-layout",
+        "//lib/log:log4j",
+    ],
+)

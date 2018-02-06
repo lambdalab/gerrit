@@ -23,12 +23,16 @@
         type: Array,
         value() { return []; },
       },
+      projectName: String,
       patchForNewThreads: String,
-      projectConfig: Object,
       range: Object,
       isOnParent: {
         type: Boolean,
         value: false,
+      },
+      parentIndex: {
+        type: Number,
+        value: null,
       },
       _threads: {
         type: Array,

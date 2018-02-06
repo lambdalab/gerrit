@@ -24,7 +24,7 @@ limitations under the License.
 <dom-module id="gr-diff-builder">
   <template>
     <div class="contentWrapper">
-      <content></content>
+      <slot></slot>
     </div>
     <gr-ranged-comment-layer
         id="rangeLayer"
@@ -36,6 +36,7 @@ limitations under the License.
         id="processor"
         groups="{{_groups}}"></gr-diff-processor>
     <gr-reporting id="reporting"></gr-reporting>
+    <gr-js-api-interface id="jsAPI"></gr-js-api-interface>
   </template>
   <script src="../gr-diff/gr-diff-line.js"></script>
   <script src="../gr-diff/gr-diff-group.js"></script>
@@ -44,9 +45,20 @@ limitations under the License.
   <script src="gr-diff-builder-side-by-side.js"></script>
   <script src="gr-diff-builder-unified.js"></script>
   <script src="gr-diff-builder-image.js"></script>
+  <script src="gr-diff-builder-binary.js"></script>
   <script>
     (function() {
       'use strict';
+
+      const Defs = {};
+
+      /**
+       * @typedef {{
+       *  number: number,
+       *  leftSide: {boolean}
+       * }}
+       */
+      Defs.LineOfInterest;
 
       const DiffViewMode = {
         SIDE_BY_SIDE: 'SIDE_BY_SIDE',
@@ -89,11 +101,20 @@ limitations under the License.
 
         properties: {
           diff: Object,
+          diffPath: String,
+          changeNum: String,
+          patchNum: String,
           viewMode: String,
           comments: Object,
           isImageDiff: Boolean,
           baseImage: Object,
           revisionImage: Object,
+          projectName: String,
+          parentIndex: Number,
+          /**
+           * @type {Defs.LineOfInterest|null}
+           */
+          lineOfInterest: Object,
           _builder: Object,
           _groups: Array,
           _layers: Array,
@@ -110,13 +131,21 @@ limitations under the License.
 
         attached() {
           // Setup annotation layers.
-          this._layers = [
+          const layers = [
             this._createTrailingWhitespaceLayer(),
             this.$.syntaxLayer,
             this._createIntralineLayer(),
             this._createTabIndicatorLayer(),
             this.$.rangeLayer,
           ];
+
+          // Get layers from plugins (if any).
+          for (const pluginLayer of this.$.jsAPI.getDiffLayers(
+              this.diffPath, this.changeNum, this.patchNum)) {
+            layers.push(pluginLayer);
+          }
+
+          this._layers = layers;
 
           this.async(() => {
             this._preRenderThread();
@@ -134,17 +163,19 @@ limitations under the License.
           this._builder = this._getDiffBuilder(this.diff, comments, prefs);
 
           this.$.processor.context = prefs.context;
-          this.$.processor.keyLocations = this._getCommentLocations(comments);
+          this.$.processor.keyLocations = this._getKeyLocations(comments,
+              this.lineOfInterest);
 
           this._clearDiffContent();
           this._builder.addColumns(this.diffElement, prefs.font_size);
 
           const reporting = this.$.reporting;
+          const isBinary = !!(this.isImageDiff || this.diff.binary);
 
           reporting.time(TimingLabel.TOTAL);
           reporting.time(TimingLabel.CONTENT);
           this.dispatchEvent(new CustomEvent('render-start', {bubbles: true}));
-          return this.$.processor.process(this.diff.content, this.isImageDiff)
+          return this.$.processor.process(this.diff.content, isBinary)
               .then(() => {
                 if (this.isImageDiff) {
                   this._builder.renderDiffImages();
@@ -219,9 +250,9 @@ limitations under the License.
         },
 
         createCommentThreadGroup(changeNum, patchNum, path,
-            isOnParent, commentSide, projectConfig) {
+            isOnParent, commentSide) {
           return this._builder.createCommentThreadGroup(changeNum, patchNum,
-              path, isOnParent, commentSide, projectConfig);
+              path, isOnParent, commentSide);
         },
 
         emitGroup(group, sectionEl) {
@@ -249,25 +280,61 @@ limitations under the License.
           this.$.syntaxLayer.cancel();
         },
 
+        _handlePreferenceError(pref) {
+          const message = `The value of the '${pref}' user preference is ` +
+              `invalid. Fix in diff preferences`;
+          this.dispatchEvent(new CustomEvent('show-alert', {
+            detail: {
+              message,
+            }, bubbles: true}));
+          throw Error(`Invalid preference value: ${pref}`);
+        },
+
         _getDiffBuilder(diff, comments, prefs) {
-          if (this.isImageDiff) {
-            return new GrDiffBuilderImage(diff, comments, prefs,
-            this.diffElement, this.baseImage, this.revisionImage);
-          } else if (this.viewMode === DiffViewMode.SIDE_BY_SIDE) {
-            return new GrDiffBuilderSideBySide(
-            diff, comments, prefs, this.diffElement, this._layers);
-          } else if (this.viewMode === DiffViewMode.UNIFIED) {
-            return new GrDiffBuilderUnified(
-            diff, comments, prefs, this.diffElement, this._layers);
+          if (isNaN(prefs.tab_size) || prefs.tab_size <= 0) {
+            this._handlePreferenceError('tab size');
+            return;
           }
-          throw Error('Unsupported diff view mode: ' + this.viewMode);
+
+          if (isNaN(prefs.line_length) || prefs.line_length <= 0) {
+            this._handlePreferenceError('diff width');
+            return;
+          }
+
+          let builder = null;
+          if (this.isImageDiff) {
+            builder = new GrDiffBuilderImage(diff, comments, prefs,
+                this.projectName, this.diffElement, this.baseImage,
+                this.revisionImage);
+          } else if (diff.binary) {
+            // If the diff is binary, but not an image.
+            return new GrDiffBuilderBinary(diff, comments, prefs,
+                this.projectName, this.diffElement);
+          } else if (this.viewMode === DiffViewMode.SIDE_BY_SIDE) {
+            builder = new GrDiffBuilderSideBySide(diff, comments, prefs,
+                this.projectName, this.diffElement, this._layers);
+          } else if (this.viewMode === DiffViewMode.UNIFIED) {
+            builder = new GrDiffBuilderUnified(diff, comments, prefs,
+                this.projectName, this.diffElement, this._layers);
+          }
+          if (!builder) {
+            throw Error('Unsupported diff view mode: ' + this.viewMode);
+          }
+          if (this.parentIndex) {
+            builder.setParentIndex(this.parentIndex);
+          }
+          return builder;
         },
 
         _clearDiffContent() {
           this.diffElement.innerHTML = null;
         },
 
-        _getCommentLocations(comments) {
+        /**
+         * @param {!Object} comments
+         * @param {Defs.LineOfInterest|null} lineOfInterest
+         */
+        _getKeyLocations(comments, lineOfInterest) {
           const result = {
             left: {},
             right: {},
@@ -281,6 +348,12 @@ limitations under the License.
               result[side][c.line || GrDiffLine.FILE] = true;
             }
           }
+
+          if (lineOfInterest) {
+            const side = lineOfInterest.leftSide ? 'left' : 'right';
+            result[side][lineOfInterest.number] = true;
+          }
+
           return result;
         },
 
@@ -391,7 +464,7 @@ limitations under the License.
         },
 
         /**
-         * @return {Boolean} whether any of the lines in _groups are longer
+         * @return {boolean} whether any of the lines in _groups are longer
          * than SYNTAX_MAX_LINE_LENGTH.
          */
         _anyLineTooLong() {
@@ -400,6 +473,11 @@ limitations under the License.
               return acc || line.text.length >= SYNTAX_MAX_LINE_LENGTH;
             }, false);
           }, false);
+        },
+
+        setBlame(blame) {
+          if (!this._builder || !blame) { return; }
+          this._builder.setBlame(blame);
         },
       });
     })();

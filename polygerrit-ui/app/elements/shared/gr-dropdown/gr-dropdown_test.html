@@ -49,7 +49,7 @@ limitations under the License.
     });
 
     test('tap on trigger opens menu', () => {
-      sandbox.stub(element, '_open', () => {element.$.dropdown.open();});
+      sandbox.stub(element, '_open', () => { element.$.dropdown.open(); });
       assert.isFalse(element.$.dropdown.opened);
       MockInteractions.tap(element.$.trigger);
       assert.isTrue(element.$.dropdown.opened);
@@ -72,10 +72,17 @@ limitations under the License.
     });
 
     test('link rel', () => {
-      assert.isNull(element._computeLinkRel({url: '/test'}));
-      assert.equal(
-          element._computeLinkRel({url: '/test', target: '_blank'}),
-          'noopener');
+      let link = {url: '/test'};
+      assert.isNull(element._computeLinkRel(link));
+
+      link = {url: '/test', target: '_blank'};
+      assert.equal(element._computeLinkRel(link), 'noopener');
+
+      link = {url: '/test', external: true};
+      assert.equal(element._computeLinkRel(link), 'external');
+
+      link = {url: '/test', target: '_blank', external: true};
+      assert.equal(element._computeLinkRel(link), 'noopener');
     });
 
     test('_getClassIfBold', () => {

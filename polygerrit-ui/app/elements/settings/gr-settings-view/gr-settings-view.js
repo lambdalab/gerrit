@@ -20,10 +20,17 @@
     'time_format',
     'email_strategy',
     'diff_view',
-    'expand_inline_diffs',
     'publish_comments_on_push',
+    'signed_off_by',
     'email_format',
+    'size_bar_in_change_table',
   ];
+
+  const GERRIT_DOCS_BASE_URL = 'https://gerrit-review.googlesource.com/' +
+      'Documentation';
+  const GERRIT_DOCS_FILTER_PATH = '/user-notify.html';
+  const ABSOLUTE_URL_PATTERN = /^https?:/;
+  const TRAILING_SLASH_PATTERN = /\/$/;
 
   Polymer({
     is: 'gr-settings-view',
@@ -51,8 +58,10 @@
       },
       _accountNameMutable: Boolean,
       _accountInfoChanged: Boolean,
+      /** @type {?} */
       _diffPrefs: Object,
       _changeTableColumnsNotDisplayed: Array,
+      /** @type {?} */
       _localPrefs: {
         type: Object,
         value() { return {}; },
@@ -81,6 +90,8 @@
         type: Boolean,
         value: false,
       },
+      /** @type {?} */
+      _editPrefsChanged: Boolean,
       _menuChanged: {
         type: Boolean,
         value: false,
@@ -102,15 +113,22 @@
         type: String,
         value: null,
       },
+      /** @type {?} */
       _serverConfig: Object,
+      /** @type {?string} */
+      _docsBaseUrl: String,
+      _emailsChanged: Boolean,
 
       /**
        * For testing purposes.
        */
       _loadingPromise: Object,
+
+      _showNumber: Boolean,
     },
 
     behaviors: [
+      Gerrit.DocsUrlBehavior,
       Gerrit.ChangeTableBehavior,
     ],
 
@@ -118,7 +136,7 @@
       '_handlePrefsChanged(_localPrefs.*)',
       '_handleDiffPrefsChanged(_diffPrefs.*)',
       '_handleMenuChanged(_localMenu.splices)',
-      '_handleChangeTableChanged(_localChangeTableColumns)',
+      '_handleChangeTableChanged(_localChangeTableColumns, _showNumber)',
     ],
 
     attached() {
@@ -129,10 +147,13 @@
         this.$.watchedProjectsEditor.loadData(),
         this.$.groupList.loadData(),
         this.$.httpPass.loadData(),
+        this.$.identities.loadData(),
+        this.$.editPrefs.loadData(),
       ];
 
       promises.push(this.$.restAPI.getPreferences().then(prefs => {
         this.prefs = prefs;
+        this._showNumber = !!prefs.legacycid_in_change_table;
         this._copyPrefs('_localPrefs', 'prefs');
         this._cloneMenu();
         this._cloneChangeTableColumns();
@@ -144,9 +165,17 @@
 
       promises.push(this.$.restAPI.getConfig().then(config => {
         this._serverConfig = config;
+        const configPromises = [];
+
         if (this._serverConfig.sshd) {
-          return this.$.sshEditor.loadData();
+          configPromises.push(this.$.sshEditor.loadData());
         }
+
+        configPromises.push(
+            this.getDocsBaseUrl(config, this.$.restAPI)
+                .then(baseUrl => { this._docsBaseUrl = baseUrl; }));
+
+        return Promise.all(configPromises);
       }));
 
       if (this.params.emailToken) {
@@ -230,14 +259,18 @@
       this._diffPrefsChanged = true;
     },
 
-    _handleExpandInlineDiffsChanged() {
-      this.set('_localPrefs.expand_inline_diffs',
-          this.$.expandInlineDiffs.checked);
+    _handleShowSizeBarsInFileListChanged() {
+      this.set('_localPrefs.size_bar_in_change_table',
+          this.$.showSizeBarsInFileList.checked);
     },
 
     _handlePublishCommentsOnPushChanged() {
       this.set('_localPrefs.publish_comments_on_push',
           this.$.publishCommentsOnPush.checked);
+    },
+
+    _handleInsertSignedOff() {
+      this.set('_localPrefs.signed_off_by', this.$.insertSignedOff.checked);
     },
 
     _handleMenuChanged() {
@@ -257,12 +290,12 @@
       });
     },
 
-    _handleLineWrappingChanged() {
-      this.set('_diffPrefs.line_wrapping', this.$.lineWrapping.checked);
+    _handleDiffLineWrappingChanged() {
+      this.set('_diffPrefs.line_wrapping', this.$.diffLineWrapping.checked);
     },
 
-    _handleShowTabsChanged() {
-      this.set('_diffPrefs.show_tabs', this.$.showTabs.checked);
+    _handleDiffShowTabsChanged() {
+      this.set('_diffPrefs.show_tabs', this.$.diffShowTabs.checked);
     },
 
     _handleShowTrailingWhitespaceChanged() {
@@ -270,13 +303,14 @@
           this.$.showTrailingWhitespace.checked);
     },
 
-    _handleSyntaxHighlightingChanged() {
+    _handleDiffSyntaxHighlightingChanged() {
       this.set('_diffPrefs.syntax_highlighting',
-          this.$.syntaxHighlighting.checked);
+          this.$.diffSyntaxHighlighting.checked);
     },
 
     _handleSaveChangeTable() {
       this.set('prefs.change_table', this._localChangeTableColumns);
+      this.set('prefs.legacycid_in_change_table', this._showNumber);
       this._cloneChangeTableColumns();
       return this.$.restAPI.savePreferences(this.prefs).then(() => {
         this._changeTableChanged = false;
@@ -288,6 +322,10 @@
           .then(() => {
             this._diffPrefsChanged = false;
           });
+    },
+
+    _handleSaveEditPreferences() {
+      this.$.editPrefs.save();
     },
 
     _handleSaveMenu() {
@@ -338,6 +376,18 @@
         this._lastSentVerificationEmail = this._newEmail;
         this._newEmail = '';
       });
+    },
+
+    _getFilterDocsLink(docsBaseUrl) {
+      let base = docsBaseUrl;
+      if (!base || !ABSOLUTE_URL_PATTERN.test(base)) {
+        base = GERRIT_DOCS_BASE_URL;
+      }
+
+      // Remove any trailing slash, since it is in the GERRIT_DOCS_FILTER_PATH.
+      base = base.replace(TRAILING_SLASH_PATTERN, '');
+
+      return base + GERRIT_DOCS_FILTER_PATH;
     },
   });
 })();

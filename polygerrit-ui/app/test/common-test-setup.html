@@ -15,5 +15,50 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<link rel="import" href="../bower_components/iron-test-helpers/iron-test-helpers.html" />
+<link rel="import"
+    href="../bower_components/polymer-resin/standalone/polymer-resin.html" />
+<script>
+  security.polymer_resin.install({
+    allowedIdentifierPrefixes: [''],
+    reportHandler(isViolation, fmt, ...args) {
+      const log = security.polymer_resin.CONSOLE_LOGGING_REPORT_HANDLER;
+      log(isViolation, fmt, ...args);
+      if (isViolation) {
+        // This will cause the test to fail if there is a data binding
+        // violation.
+        throw new Error(
+            'polymer-resin violation: ' + fmt
+            + JSON.stringify(args));
+      }
+    },
+  });
+</script>
+<script>
+  // eslint-disable-next-line no-unused-vars
+  const mockPromise = () => {
+    let res;
+    const promise = new Promise(resolve => {
+      res = resolve;
+    });
+    promise.resolve = res;
+    return promise;
+  };
+</script>
+<script>
+  (function() {
+    setup(() => {
+      if (!window.Gerrit) { return; }
+      Gerrit._pluginsPending = -1;
+      Gerrit._allPluginsPromise = undefined;
+      if (Gerrit._resetPlugins) {
+        Gerrit._resetPlugins();
+      }
+      if (Gerrit._endpoints) {
+        Gerrit._endpoints = new GrPluginEndpoints();
+      }
+    });
+  })();
+</script>
+<link rel="import"
+    href="../bower_components/iron-test-helpers/iron-test-helpers.html" />
 <link rel="import" href="test-router.html" />

@@ -22,7 +22,16 @@
     properties: {
       text: String,
       title: String,
+      buttonTitle: String,
+      hasTooltip: {
+        type: Boolean,
+        value: false,
+      },
       hideInput: {
+        type: Boolean,
+        value: false,
+      },
+      hideLabel: {
         type: Boolean,
         value: false,
       },
@@ -36,17 +45,29 @@
       return hideInput ? 'hideInput' : '';
     },
 
+    _computeLabelClass(hideLabel) {
+      return hideLabel ? 'hideLabel' : '';
+    },
+
     _handleInputTap(e) {
       e.preventDefault();
       Polymer.dom(e).rootTarget.select();
     },
 
-    _copyToClipboard(e) {
+    _copyToClipboard() {
+      if (this.hideInput) {
+        this.$.input.style.display = 'block';
+      }
+      this.$.input.focus();
       this.$.input.select();
       document.execCommand('copy');
-      window.getSelection().removeAllRanges();
-      e.target.textContent = 'done';
-      this.async(() => { e.target.textContent = 'copy'; }, COPY_TIMEOUT_MS);
+      if (this.hideInput) {
+        this.$.input.style.display = 'none';
+      }
+      this.$.icon.icon = 'gr-icons:check';
+      this.async(
+          () => this.$.icon.icon = 'gr-icons:content-copy',
+          COPY_TIMEOUT_MS);
     },
   });
 })();

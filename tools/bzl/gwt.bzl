@@ -52,10 +52,6 @@ GWT_COMPILER_ARGS_RELEASE_MODE = GWT_COMPILER_ARGS + [
     "-XdisableCastChecking",
 ]
 
-PLUGIN_DEPS_NEVERLINK = [
-    "//gerrit-plugin-api:lib-neverlink",
-]
-
 GWT_PLUGIN_DEPS_NEVERLINK = [
     "//gerrit-plugin-gwtui:gwtui-api-lib-neverlink",
     "//lib/gwt:user-neverlink",
@@ -66,6 +62,7 @@ GWT_PLUGIN_DEPS = [
 ]
 
 GWT_TRANSITIVE_DEPS = [
+    "//lib:jsr305",
     "//lib/gwt:ant",
     "//lib/gwt:colt",
     "//lib/gwt:javax-validation",
@@ -82,7 +79,7 @@ GWT_TRANSITIVE_DEPS = [
 ]
 
 DEPS = GWT_TRANSITIVE_DEPS + [
-    "//gerrit-gwtexpui:CSS",
+    "//java/com/google/gwtexpui/css",
     "//lib:gwtjsonrpc",
     "//lib/gwt:dev",
     "//lib/jgit/org.eclipse.jgit:jgit-source",
@@ -97,7 +94,7 @@ USER_AGENT_XML = """<module rename-to='gerrit_ui'>
 
 def gwt_module(gwt_xml=None, resources=[], srcs=[], **kwargs):
   if gwt_xml:
-    resources += [gwt_xml]
+    resources = resources + [gwt_xml]
 
   java_library2(
     srcs = srcs,
@@ -131,7 +128,7 @@ def _gwt_user_agent_module(ctx):
     "cp $p/%s %s" % (gwt_user_agent_xml.path, gwt),
     "$p/%s cC $p/%s $(find . | sed 's|^./||')" % (ctx.executable._zip.path, gwt_user_agent_zip.path)
   ])
-  ctx.action(
+  ctx.actions.run_shell(
     inputs = [gwt_user_agent_xml] + ctx.files._zip,
     outputs = [gwt_user_agent_zip],
     command = cmd,
@@ -184,7 +181,7 @@ def _gwt_binary_impl(ctx):
     )
   ])
 
-  ctx.action(
+  ctx.actions.run_shell(
     inputs = list(deps) + ctx.files._jdk + ctx.files._zip + gwt_user_agent_modules,
     outputs = [output_zip],
     mnemonic = "GwtBinary",
@@ -193,7 +190,7 @@ def _gwt_binary_impl(ctx):
   )
 
 def _get_transitive_closure(ctx):
-  deps = set()
+  deps = depset()
   for dep in ctx.attr.module_deps:
     deps += dep.java.transitive_runtime_deps
     deps += dep.java.transitive_source_jars
@@ -286,7 +283,7 @@ def gen_ui_module(name, suffix = ""):
     deps = [
       '//gerrit-gwtui-common:diffy_logo',
       '//gerrit-gwtui-common:client',
-      '//gerrit-gwtexpui:CSS',
+      '//java/com/google/gwtexpui/css',
       '//lib/codemirror:codemirror' + suffix,
       '//lib/gwt:user',
     ],

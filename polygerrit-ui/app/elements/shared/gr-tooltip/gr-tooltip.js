@@ -23,11 +23,14 @@
         type: String,
         observer: '_updateWidth',
       },
+      positionBelow: {
+        type: Boolean,
+        reflectToAttribute: true,
+      },
     },
 
     _updateWidth(maxWidth) {
-      this.customStyle['--tooltip-max-width'] = maxWidth;
-      this.updateStyles();
+      this.updateStyles({'--tooltip-max-width': maxWidth});
     },
   });
 })();

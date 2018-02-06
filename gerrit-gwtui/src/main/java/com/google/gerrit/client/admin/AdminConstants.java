@@ -31,6 +31,8 @@ public interface AdminConstants extends Constants {
 
   String defaultRevisionSpec();
 
+  String annotation();
+
   String buttonDeleteIncludedGroup();
 
   String buttonAddIncludedGroup();
@@ -74,6 +76,8 @@ public interface AdminConstants extends Constants {
   String requireChangeID();
 
   String rejectImplicitMerges();
+
+  String privateByDefault();
 
   String enableReviewerByEmail();
 
@@ -129,6 +133,8 @@ public interface AdminConstants extends Constants {
 
   String headingProjectSubmitType();
 
+  String projectSubmitType_INHERIT();
+
   String projectSubmitType_FAST_FORWARD_ONLY();
 
   String projectSubmitType_MERGE_ALWAYS();
@@ -180,6 +186,8 @@ public interface AdminConstants extends Constants {
   String columnTagName();
 
   String columnTagRevision();
+
+  String columnTagAnnotation();
 
   String initialRevision();
 

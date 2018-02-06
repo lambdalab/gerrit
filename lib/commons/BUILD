@@ -8,13 +8,6 @@ java_library(
 )
 
 java_library(
-    name = "collections",
-    data = ["//lib:LICENSE-Apache2.0"],
-    visibility = ["//visibility:public"],
-    exports = ["@commons_collections//jar"],
-)
-
-java_library(
     name = "compress",
     data = ["//lib:LICENSE-Apache2.0"],
     visibility = ["//visibility:public"],
@@ -57,15 +50,15 @@ java_library(
 )
 
 java_library(
-    name = "oro",
-    data = ["//lib:LICENSE-Apache1.1"],
-    visibility = ["//visibility:public"],
-    exports = ["@commons_oro//jar"],
-)
-
-java_library(
     name = "validator",
     data = ["//lib:LICENSE-Apache2.0"],
     visibility = ["//visibility:public"],
     exports = ["@commons_validator//jar"],
+)
+
+java_library(
+    name = "io",
+    data = ["//lib:LICENSE-Apache2.0"],
+    visibility = ["//visibility:public"],
+    exports = ["@commons_io//jar"],
 )

@@ -42,10 +42,14 @@ limitations under the License.
 <script>
   suite('gr-change-list basic tests', () => {
     let element;
+    let sandbox;
 
     setup(() => {
+      sandbox = sinon.sandbox.create();
       element = fixture('basic');
     });
+
+    teardown(() => { sandbox.restore(); });
 
     function stubRestAPI(preferences) {
       const loggedInPromise = Promise.resolve(preferences !== null);
@@ -103,18 +107,32 @@ limitations under the License.
 
     test('computed fields', () => {
       assert.equal(element._computeLabelNames(
-          [[{_number: 0, labels: {}}]]).length, 0);
-      assert.equal(element._computeLabelNames([[
-            {_number: 0, labels: {Verified: {approved: {}}}},
-        {_number: 1, labels: {
-          'Verified': {approved: {}}, 'Code-Review': {approved: {}}}},
-        {_number: 2, labels: {
-          'Verified': {approved: {}}, 'Library-Compliance': {approved: {}}}},
-      ]]).length, 3);
+            [{results: [{_number: 0, labels: {}}]}]).length, 0);
+      assert.equal(element._computeLabelNames([
+        {results: [
+          {_number: 0, labels: {Verified: {approved: {}}}},
+          {
+            _number: 1,
+            labels: {
+              'Verified': {approved: {}},
+              'Code-Review': {approved: {}},
+            },
+          },
+          {
+            _number: 2,
+            labels: {
+              'Verified': {approved: {}},
+              'Library-Compliance': {approved: {}},
+            },
+          },
+        ]},
+      ]).length, 3);
 
       assert.equal(element._computeLabelShortcut('Code-Review'), 'CR');
       assert.equal(element._computeLabelShortcut('Verified'), 'V');
       assert.equal(element._computeLabelShortcut('Library-Compliance'), 'LC');
+      assert.equal(element._computeLabelShortcut('PolyGerrit-Review'), 'PR');
+      assert.equal(element._computeLabelShortcut('polygerrit-review'), 'PR');
       assert.equal(element._computeLabelShortcut(
           'Some-Special-Label-7'), 'SSL7');
     });
@@ -130,6 +148,11 @@ limitations under the License.
     });
 
     test('keyboard shortcuts', done => {
+      sandbox.stub(element, '_computeLabelNames');
+      element.sections = [
+        {results: new Array(1)},
+        {results: new Array(2)},
+      ];
       element.selectedIndex = 0;
       element.changes = [
         {_number: 0},
@@ -145,18 +168,21 @@ limitations under the License.
         assert.isTrue(elementItems[0].hasAttribute('selected'));
         MockInteractions.pressAndReleaseKeyOn(element, 74, null, 'j');
         assert.equal(element.selectedIndex, 1);
+        assert.isTrue(elementItems[1].hasAttribute('selected'));
         MockInteractions.pressAndReleaseKeyOn(element, 74, null, 'j');
+        assert.equal(element.selectedIndex, 2);
+        assert.isTrue(elementItems[2].hasAttribute('selected'));
 
-        const showStub = sinon.stub(page, 'show');
+        const navStub = sandbox.stub(Gerrit.Nav, 'navigateToChange');
         assert.equal(element.selectedIndex, 2);
         MockInteractions.pressAndReleaseKeyOn(element, 13, null, 'enter');
-        assert(showStub.lastCall.calledWithExactly('/c/2/'),
+        assert.deepEqual(navStub.lastCall.args[0], {_number: 2},
             'Should navigate to /c/2/');
 
         MockInteractions.pressAndReleaseKeyOn(element, 75, null, 'k');
         assert.equal(element.selectedIndex, 1);
         MockInteractions.pressAndReleaseKeyOn(element, 13, null, 'enter');
-        assert(showStub.lastCall.calledWithExactly('/c/1/'),
+        assert.deepEqual(navStub.lastCall.args[0], {_number: 1},
             'Should navigate to /c/1/');
 
         MockInteractions.pressAndReleaseKeyOn(element, 75, null, 'k');
@@ -164,7 +190,6 @@ limitations under the License.
         MockInteractions.pressAndReleaseKeyOn(element, 75, null, 'k');
         assert.equal(element.selectedIndex, 0);
 
-        showStub.restore();
         done();
       });
     });
@@ -189,11 +214,6 @@ limitations under the License.
         },
         {
           _number: 3,
-          status: 'DRAFT',
-          owner: {_account_id: 42},
-        },
-        {
-          _number: 4,
           status: 'ABANDONED',
           owner: {_account_id: 0},
         },
@@ -201,7 +221,7 @@ limitations under the License.
       flushAsynchronousOperations();
       let elementItems = Polymer.dom(element.root).querySelectorAll(
           'gr-change-list-item');
-      assert.equal(elementItems.length, 5);
+      assert.equal(elementItems.length, 4);
       for (let i = 0; i < elementItems.length; i++) {
         assert.isFalse(elementItems[i].hasAttribute('needs-review'));
       }
@@ -209,22 +229,20 @@ limitations under the License.
       element.showReviewedState = true;
       elementItems = Polymer.dom(element.root).querySelectorAll(
           'gr-change-list-item');
-      assert.equal(elementItems.length, 5);
-      assert.isFalse(elementItems[0].hasAttribute('needs-review'));
-      assert.isTrue(elementItems[1].hasAttribute('needs-review'));
-      assert.isFalse(elementItems[2].hasAttribute('needs-review'));
-      assert.isTrue(elementItems[3].hasAttribute('needs-review'));
-      assert.isFalse(elementItems[4].hasAttribute('needs-review'));
-
-      element.account = {_account_id: 42};
-      elementItems = Polymer.dom(element.root).querySelectorAll(
-          'gr-change-list-item');
-      assert.equal(elementItems.length, 5);
+      assert.equal(elementItems.length, 4);
       assert.isFalse(elementItems[0].hasAttribute('needs-review'));
       assert.isTrue(elementItems[1].hasAttribute('needs-review'));
       assert.isFalse(elementItems[2].hasAttribute('needs-review'));
       assert.isFalse(elementItems[3].hasAttribute('needs-review'));
-      assert.isFalse(elementItems[4].hasAttribute('needs-review'));
+
+      element.account = {_account_id: 42};
+      elementItems = Polymer.dom(element.root).querySelectorAll(
+          'gr-change-list-item');
+      assert.equal(elementItems.length, 4);
+      assert.isFalse(elementItems[0].hasAttribute('needs-review'));
+      assert.isTrue(elementItems[1].hasAttribute('needs-review'));
+      assert.isFalse(elementItems[2].hasAttribute('needs-review'));
+      assert.isFalse(elementItems[3].hasAttribute('needs-review'));
     });
 
     test('no changes', () => {
@@ -239,7 +257,7 @@ limitations under the License.
     });
 
     test('empty sections', () => {
-      element.sections = [[], []];
+      element.sections = [{results: []}, {results: []}];
       flushAsynchronousOperations();
       const listItems = Polymer.dom(element.root).querySelectorAll(
           'gr-change-list-item');
@@ -286,6 +304,7 @@ limitations under the License.
             'Subject',
             'Status',
             'Owner',
+            'Assignee',
             'Project',
             'Branch',
             'Updated',
@@ -316,6 +335,7 @@ limitations under the License.
             'Subject',
             'Status',
             'Owner',
+            'Assignee',
             'Branch',
             'Updated',
             'Size',
@@ -365,39 +385,38 @@ limitations under the License.
 
   suite('gr-change-list sections', () => {
     let element;
+    let sandbox;
 
     setup(() => {
+      sandbox = sinon.sandbox.create();
       element = fixture('basic');
     });
+
+    teardown(() => { sandbox.restore(); });
 
     test('keyboard shortcuts', () => {
       element.selectedIndex = 0;
       element.sections = [
-        [
-          {_number: 0},
-          {_number: 1},
-          {_number: 2},
-        ],
-        [
-          {_number: 3},
-          {_number: 4},
-          {_number: 5},
-        ],
-        [
-          {_number: 6},
-          {_number: 7},
-          {_number: 8},
-        ],
-      ];
-      element.sectionMetadata = [
         {
-          name: 'Group 1',
+          results: [
+            {_number: 0},
+            {_number: 1},
+            {_number: 2},
+          ],
         },
         {
-          name: 'Group 2',
+          results: [
+            {_number: 3},
+            {_number: 4},
+            {_number: 5},
+          ],
         },
         {
-          name: 'Group 3',
+          results: [
+            {_number: 6},
+            {_number: 7},
+            {_number: 8},
+          ],
         },
       ];
       flushAsynchronousOperations();
@@ -405,30 +424,30 @@ limitations under the License.
           'gr-change-list-item');
       assert.equal(elementItems.length, 9);
 
-      MockInteractions.pressAndReleaseKeyOn(element, 74);  // 'j'
+      MockInteractions.pressAndReleaseKeyOn(element, 74); // 'j'
       assert.equal(element.selectedIndex, 1);
-      MockInteractions.pressAndReleaseKeyOn(element, 74);  // 'j'
+      MockInteractions.pressAndReleaseKeyOn(element, 74); // 'j'
 
-      const showStub = sinon.stub(page, 'show');
+      const navStub = sandbox.stub(Gerrit.Nav, 'navigateToChange');
       assert.equal(element.selectedIndex, 2);
-      MockInteractions.pressAndReleaseKeyOn(element, 13);  // 'enter'
-      assert(showStub.lastCall.calledWithExactly('/c/2/'),
+
+      MockInteractions.pressAndReleaseKeyOn(element, 13); // 'enter'
+      assert.deepEqual(navStub.lastCall.args[0], {_number: 2},
           'Should navigate to /c/2/');
 
-      MockInteractions.pressAndReleaseKeyOn(element, 75);  // 'k'
+      MockInteractions.pressAndReleaseKeyOn(element, 75); // 'k'
       assert.equal(element.selectedIndex, 1);
-      MockInteractions.pressAndReleaseKeyOn(element, 13);  // 'enter'
-      assert(showStub.lastCall.calledWithExactly('/c/1/'),
+      MockInteractions.pressAndReleaseKeyOn(element, 13); // 'enter'
+      assert.deepEqual(navStub.lastCall.args[0], {_number: 1},
           'Should navigate to /c/1/');
 
-      MockInteractions.pressAndReleaseKeyOn(element, 74);  // 'j'
-      MockInteractions.pressAndReleaseKeyOn(element, 74);  // 'j'
-      MockInteractions.pressAndReleaseKeyOn(element, 74);  // 'j'
+      MockInteractions.pressAndReleaseKeyOn(element, 74); // 'j'
+      MockInteractions.pressAndReleaseKeyOn(element, 74); // 'j'
+      MockInteractions.pressAndReleaseKeyOn(element, 74); // 'j'
       assert.equal(element.selectedIndex, 4);
-      MockInteractions.pressAndReleaseKeyOn(element, 13);  // 'enter'
-      assert(showStub.lastCall.calledWithExactly('/c/4/'),
+      MockInteractions.pressAndReleaseKeyOn(element, 13); // 'enter'
+      assert.deepEqual(navStub.lastCall.args[0], {_number: 4},
           'Should navigate to /c/4/');
-      showStub.restore();
     });
 
     test('assigned attribute set in each item', () => {
@@ -440,11 +459,6 @@ limitations under the License.
         },
         {
           _number: 1,
-          status: 'DRAFT',
-          owner: {_account_id: 42},
-        },
-        {
-          _number: 2,
           status: 'ABANDONED',
           owner: {_account_id: 0},
         },
@@ -452,23 +466,30 @@ limitations under the License.
       element.account = {_account_id: 42};
       flushAsynchronousOperations();
       const items = element._getListItems();
-      assert.equal(items.length, 3);
+      assert.equal(items.length, 2);
       for (let i = 0; i < items.length; i++) {
         assert.equal(items[i].hasAttribute('assigned'),
             items[i]._account_id === element.account._account_id);
       }
     });
 
-    test('_sectionHref', () => {
-      element.sectionMetadata = [
-        {query: 'is:open owner:self'},
-        {query: 'is:open ((reviewer:self -is:ignored) OR assignee:self)'},
+    test('_computeItemAbsoluteIndex', () => {
+      sandbox.stub(element, '_computeLabelNames');
+      element.sections = [
+        {results: new Array(1)},
+        {results: new Array(2)},
+        {results: new Array(3)},
       ];
 
-      assert.equal(element._sectionHref(10), null);
-      assert.equal(element._sectionHref(0), '/q/is:open+owner:self');
-      assert.equal(element._sectionHref(1),
-          '/q/is:open+((reviewer:self+-is:ignored)+OR+assignee:self)');
+      assert.equal(element._computeItemAbsoluteIndex(0, 0), 0);
+      // Out of range but no matter.
+      assert.equal(element._computeItemAbsoluteIndex(0, 1), 1);
+
+      assert.equal(element._computeItemAbsoluteIndex(1, 0), 1);
+      assert.equal(element._computeItemAbsoluteIndex(1, 1), 2);
+      assert.equal(element._computeItemAbsoluteIndex(1, 2), 3);
+      assert.equal(element._computeItemAbsoluteIndex(2, 0), 3);
+      assert.equal(element._computeItemAbsoluteIndex(3, 0), 6);
     });
   });
 </script>

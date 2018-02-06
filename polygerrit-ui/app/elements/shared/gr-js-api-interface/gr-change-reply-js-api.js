@@ -15,6 +15,19 @@
   'use strict';
 
   /**
+   * Ensure GrChangeReplyInterface instance has access to gr-reply-dialog
+   * element and retrieve if the interface was created before element.
+   * @param {!GrChangeReplyInterfaceOld} api
+   */
+  function ensureEl(api) {
+    if (!api._el) {
+      const sharedApiElement = document.createElement('gr-js-api-interface');
+      api._el = sharedApiElement.getElement(
+          sharedApiElement.Element.REPLY_DIALOG);
+    }
+  }
+
+  /**
    * @deprecated
    */
   function GrChangeReplyInterfaceOld(el) {
@@ -22,14 +35,17 @@
   }
 
   GrChangeReplyInterfaceOld.prototype.getLabelValue = function(label) {
+    ensureEl(this);
     return this._el.getLabelValue(label);
   };
 
   GrChangeReplyInterfaceOld.prototype.setLabelValue = function(label, value) {
+    ensureEl(this);
     this._el.setLabelValue(label, value);
   };
 
   GrChangeReplyInterfaceOld.prototype.send = function(opt_includeComments) {
+    ensureEl(this);
     return this._el.send(opt_includeComments);
   };
 
@@ -47,28 +63,9 @@
     Object.create(GrChangeReplyInterfaceOld.prototype);
   GrChangeReplyInterface.prototype.constructor = GrChangeReplyInterface;
 
-  GrChangeReplyInterface.prototype.getDomHook = function() {
-    if (!this._hookPromise) {
-      this._hookPromise = new Promise((resolve, reject) => {
-        this._hookClass = Polymer({
-          is: this._hookName,
-          properties: {
-            plugin: Object,
-            content: Object,
-          },
-          attached() {
-            resolve(this);
-          },
-        });
-        this.plugin.registerCustomComponent('reply-text', this._hookName);
-      });
-    }
-    return this._hookPromise;
-  };
-
   GrChangeReplyInterface.prototype.addReplyTextChangedCallback =
     function(handler) {
-      this.getDomHook().then(el => {
+      this.plugin.hook('reply-text').onAttached(el => {
         if (!el.content) { return; }
         el.content.addEventListener('value-changed', e => {
           handler(e.detail.value);

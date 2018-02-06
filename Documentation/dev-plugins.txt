@@ -3,6 +3,9 @@
 The Gerrit server functionality can be extended by installing plugins.
 This page describes how plugins for Gerrit can be developed.
 
+For PolyGerrit-specific plugin development, consult with
+link:pg-plugin-dev.html[PolyGerrit Plugin Development] guide.
+
 Depending on how tightly the extension code is coupled with the Gerrit
 server code, there is a distinction between `plugins` and `extensions`.
 
@@ -12,6 +15,11 @@ JVM as Gerrit. It has full access to all server internals. Plugins
 are tightly coupled to a specific major.minor server version and
 may require source code changes to compile against a different
 server version.
+
+Plugins may require a specific major.minor.patch server version
+and may need rebuild and revalidation across different
+patch levels. A different patch level may only add new
+API interfaces and never change or extend existing ones.
 
 [[extension]]
 An `extension` in Gerrit runs inside of the same JVM as Gerrit
@@ -402,6 +410,10 @@ Update of the account secondary index
 +
 Update of the group secondary index
 
+* `com.google.gerrit.server.extensions.events.ProjectIndexedListener`:
++
+Update of the project secondary index
+
 * `com.google.gerrit.httpd.WebLoginListener`:
 +
 User login or logout interactively on the Web user interface.
@@ -474,13 +486,27 @@ plugins implementing this can modify commit message of the change being
 submitted by Rebase Always and Cherry Pick submit strategies as well as
 change being queried with COMMIT_FOOTERS option.
 
+[[merge-super-set-computation]]
+== Merge Super Set Computation
+
+The algorithm to compute the merge super set to detect changes that
+should be submitted together can be customized by implementing
+`com.google.gerrit.server.git.MergeSuperSetComputation`.
+MergeSuperSetComputation is a DynamicItem, so Gerrit may only have one
+implementation.
+
 [[receive-pack]]
 == Receive Pack Initializers
 
-Plugins may provide ReceivePack initializers which will be invoked
-by Gerrit just before a ReceivePack instance will be used. Usually,
-plugins will make use of the setXXX methods on the ReceivePack to
-set additional properties on it.
+Plugins may provide ReceivePackInitializer instances, which will be
+invoked by Gerrit just before a ReceivePack instance will be used.
+Usually, plugins will make use of the setXXX methods on the ReceivePack
+to set additional properties on it.
+
+The interactions with the core Gerrit ReceivePack initialization and
+between ReceivePackInitializers can be complex. Please read the
+ReceivePack Javadoc and Gerrit AsyncReceiveCommits implementation
+carefully.
 
 [[post-receive-hook]]
 == Post Receive-Pack Hooks
@@ -489,6 +515,19 @@ Plugins may register PostReceiveHook instances in order to get
 notified when JGit successfully receives a pack. This may be useful
 for those plugins which would like to monitor changes in Git
 repositories.
+
+[[upload-pack]]
+== Upload Pack Initializers
+
+Plugins may provide UploadPackInitializer instances, which will be
+invoked by Gerrit just before a UploadPack instance will be used.
+Usually, plugins will make use of the setXXX methods on the UploadPack
+to set additional properties on it.
+
+The interactions with the core Gerrit UploadPack initialization and
+between UploadPackInitializers can be complex. Please read the
+UploadPack Javadoc and Gerrit Upload/UploadFactory implementations
+carefully.
 
 [[pre-upload-hook]]
 == Pre Upload-Pack Hooks
@@ -2210,7 +2249,7 @@ Plugins can hook into the
 link:rest-api-accounts.html#create-account[account creation] REST API and
 inject additional external identifiers for an account that represents a user
 in some external user store. For that, an implementation of the extension
-point `com.google.gerrit.server.api.accounts.AccountExternalIdCreator`
+point `com.google.gerrit.server.account.AccountExternalIdCreator`
 must be registered.
 
 [source,java]
@@ -2307,6 +2346,8 @@ BranchWebLinks will appear in the branch list in the last column.
 
 FileHistoryWebLinks will appear on the access rights screen.
 
+TagWebLinks will appear in the tag list in the last column.
+
 If a `get*WebLink` implementation returns `null`, the link will be omitted. This
 allows the plugin to selectively "enable" itself on a per-project/branch/file
 basis.
@@ -2382,7 +2423,7 @@ link:https://gerrit.googlesource.com/plugins/metrics-reporter-elasticsearch/[Ela
 and link:https://gerrit.googlesource.com/plugins/metrics-reporter-graphite/[Graphite].
 
 There is also a working example of reporting metrics to the console in the
-link:https://gerrit.googlesource.com/plugins/cookbook-plugin/+/master/src/main/java/com/googlesource/gerrit/plugins/cookbook/ConsoleMetricReporter.jave[
+link:https://gerrit.googlesource.com/plugins/cookbook-plugin/+/master/src/main/java/com/googlesource/gerrit/plugins/cookbook/ConsoleMetricReporter.java[
 cookbook plugin].
 
 === Providing own metrics
@@ -2549,14 +2590,26 @@ displayed as part of the index page, if present in the manifest:
 Compiled plugins and extensions can be deployed to a running Gerrit
 server using the link:cmd-plugin-install.html[plugin install] command.
 
-Web UI plugins distributed as  single `.js` file can be deployed
-without the overhead of JAR packaging, for more information refer to
-link:cmd-plugin-install.html[plugin install] command.
+Web UI plugins distributed as a single `.js` file (or `.html` file for
+Polygerrit) can be deployed without the overhead of JAR packaging. For
+more information refer to link:cmd-plugin-install.html[plugin install]
+command.
 
-Plugins can also be copied directly into the server's
-directory at `$site_path/plugins/$name.(jar|js)`.  The name of
-the JAR file, minus the `.jar` or `.js` extension, will be used as the
-plugin name. Unless disabled, servers periodically scan this
+Plugins can also be copied directly into the server's directory at
+`$site_path/plugins/$name.(jar|js|html)`. For Web UI plugins, the name
+of the file, minus the `.js` or `.html` extension, will be used as the
+plugin name. For JAR plugins, the value of the `Gerrit-PluginName`
+manifest attribute will be used, if provided, otherwise the name of
+the file, minus the `.jar` extension, will be used.
+
+For Web UI plugins, the plugin version is derived from the filename.
+If the filename contains one or more hyphens, the version is taken
+from the portion following the last hyphen. For example if the plugin
+filename is `my-plugin-1.0.js` the version will be `1.0`. For JAR
+plugins, the version is taken from the `Version` attribute in the
+manifest.
+
+Unless disabled, servers periodically scan the `$site_path/plugins`
 directory for updated plugins. The time can be adjusted by
 link:config-gerrit.html#plugins.checkFrequency[plugins.checkFrequency].
 

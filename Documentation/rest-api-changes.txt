@@ -10,15 +10,18 @@ link:rest-api.html[REST API].
 [[create-change]]
 === Create Change
 --
-'POST /changes'
+'POST /changes/'
 --
 
 The change input link:#change-input[ChangeInput] entity must be provided in the
 request body.
 
+To create a change the calling user must be allowed to
+link:access-control.html#category_push_review[upload to code review].
+
 .Request
 ----
-  POST /changes HTTP/1.0
+  POST /changes/ HTTP/1.0
   Content-Type: application/json; charset=UTF-8
 
   {
@@ -26,7 +29,7 @@ request body.
     "subject" : "Let's support 100% Gerrit workflow direct in browser",
     "branch" : "master",
     "topic" : "create-change-in-browser",
-    "status" : "DRAFT"
+    "status" : "NEW"
   }
 ----
 
@@ -35,7 +38,7 @@ the resulting change.
 
 .Response
 ----
-  HTTP/1.1 200 OK
+  HTTP/1.1 201 OK
   Content-Disposition: attachment
   Content-Type: application/json; charset=UTF-8
 
@@ -47,7 +50,7 @@ the resulting change.
     "topic": "create-change-in-browser",
     "change_id": "I8473b95934b5732ac55d26311a706c9c2bde9941",
     "subject": "Let's support 100% Gerrit workflow direct in browser",
-    "status": "DRAFT",
+    "status": "NEW",
     "created": "2014-05-05 07:15:44.639000000",
     "updated": "2014-05-05 07:15:44.639000000",
     "mergeable": true,
@@ -301,6 +304,13 @@ default. Optional fields are:
     link:user-search.html#reviewedby[reviewedby:self].
 --
 
+[[skip_mergeable]]
+--
+* `SKIP_MERGEABLE`: skip the `mergeable` field in
+link:#change-info[ChangeInfo]. For fast moving projects, this field must
+be recomputed often, which is slow for projects with big trees.
+--
+
 [[submittable]]
 --
 * `SUBMITTABLE`: include the `submittable` field in link:#change-info[ChangeInfo],
@@ -332,6 +342,12 @@ default. Optional fields are:
   link:#revision-info[RevisionInfo]. Ignored if signed push is not
   link:config-gerrit.html#receive.enableSignedPush[enabled] on the
   server.
+--
+
+[[tracking-ids]]
+--
+* `TRACKING_IDS`: include references to external tracking systems
+  as link:#tracking-id-info[TrackingIdInfo].
 --
 
 .Request
@@ -514,61 +530,6 @@ describes the change.
     "owner": {
       "name": "John Doe"
     }
-  }
-----
-
-[[create-merge-patch-set-for-change]]
-=== Create Merge Patch Set For Change
---
-'POST /changes/link:#change-id[\{change-id\}]/merge'
---
-
-Update an existing change by using a
-link:#merge-patch-set-input[MergePatchSetInput] entity.
-
-Gerrit will create a merge commit based on the information of
-MergePatchSetInput and add a new patch set to the change corresponding
-to the new merge commit.
-
-.Request
-----
-  POST /changes/test~master~Ic5466d107c5294414710935a8ef3b0180fb848dc/merge  HTTP/1.0
-  Content-Type: application/json; charset=UTF-8
-
-  {
-    "source": "refs/12/1234/1"
-  }
-----
-
-As response a link:#change-info[ChangeInfo] entity with current revision is
-returned that describes the resulting change.
-
-.Response
-----
-  HTTP/1.1 200 OK
-  Content-Disposition: attachment
-  Content-Type: application/json; charset=UTF-8
-
-  )]}'
-  {
-    "id": "test~master~Ic5466d107c5294414710935a8ef3b0180fb848dc",
-    "project": "test",
-    "branch": "master",
-    "hashtags": [],
-    "change_id": "Ic5466d107c5294414710935a8ef3b0180fb848dc",
-    "subject": "Merge dev_branch into master",
-    "status": "NEW",
-    "created": "2016-09-23 18:08:53.238000000",
-    "updated": "2016-09-23 18:09:25.934000000",
-    "submit_type": "MERGE_IF_NECESSARY",
-    "mergeable": true,
-    "insertions": 5,
-    "deletions": 0,
-    "_number": 72,
-    "owner": {
-      "_account_id": 1000000
-    },
-    "current_revision": "27cc4558b5a3d3387dd11ee2df7a117e7e581822"
   }
 ----
 
@@ -783,9 +744,9 @@ REJECTED > APPROVED > DISLIKED > RECOMMENDED.
           "email": "john.doe@example.com",
           "username": "jdoe"
         },
-        "updated": "2013-03-23 21:34:02.419000000",
+        "date": "2013-03-23 21:34:02.419000000",
         "message": "Patch Set 1:\n\nThis is the first message.",
-        "revision_number": 1
+        "_revision_number": 1
       },
       {
         "id": "WEEdhU",
@@ -795,13 +756,104 @@ REJECTED > APPROVED > DISLIKED > RECOMMENDED.
           "email": "jane.roe@example.com",
           "username": "jroe"
         },
-        "updated": "2013-03-23 21:36:52.332000000",
+        "date": "2013-03-23 21:36:52.332000000",
         "message": "Patch Set 1:\n\nThis is the second message.\n\nWith a line break.",
-        "revision_number": 1
+        "_revision_number": 1
       }
     ]
   }
 ----
+
+[[create-merge-patch-set-for-change]]
+=== Create Merge Patch Set For Change
+--
+'POST /changes/link:#change-id[\{change-id\}]/merge'
+--
+
+Update an existing change by using a
+link:#merge-patch-set-input[MergePatchSetInput] entity.
+
+Gerrit will create a merge commit based on the information of
+MergePatchSetInput and add a new patch set to the change corresponding
+to the new merge commit.
+
+.Request
+----
+  POST /changes/test~master~Ic5466d107c5294414710935a8ef3b0180fb848dc/merge  HTTP/1.0
+  Content-Type: application/json; charset=UTF-8
+
+  {
+    "subject": "Merge dev_branch into master",
+    "merge": {
+      "source": "refs/12/1234/1"
+    }
+  }
+----
+
+As response a link:#change-info[ChangeInfo] entity with current revision is
+returned that describes the resulting change.
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "id": "test~master~Ic5466d107c5294414710935a8ef3b0180fb848dc",
+    "project": "test",
+    "branch": "master",
+    "hashtags": [],
+    "change_id": "Ic5466d107c5294414710935a8ef3b0180fb848dc",
+    "subject": "Merge dev_branch into master",
+    "status": "NEW",
+    "created": "2016-09-23 18:08:53.238000000",
+    "updated": "2016-09-23 18:09:25.934000000",
+    "submit_type": "MERGE_IF_NECESSARY",
+    "mergeable": true,
+    "insertions": 5,
+    "deletions": 0,
+    "_number": 72,
+    "owner": {
+      "_account_id": 1000000
+    },
+    "current_revision": "27cc4558b5a3d3387dd11ee2df7a117e7e581822"
+  }
+----
+
+[[set-message]]
+=== Set Commit Message
+--
+'PUT /changes/link:#change-id[\{change-id\}]/message'
+--
+
+Creates a new patch set with a new commit message.
+
+The new commit message must be provided in the request body inside a
+link:#commit-message-input[CommitMessageInput] entity and contain the change ID footer if
+link:project-configuration.html#require-change-id[Require Change-Id] was specified.
+
+.Request
+----
+  PUT /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/message HTTP/1.0
+  Content-Type: application/json; charset=UTF-8
+
+  {
+    "message": "New Commit message \n\nChange-Id: I10394472cbd17dd12454f229e4f6de00b143a444\n"
+  }
+----
+
+.Notifications
+
+An email will be sent using the "newpatchset" template.
+
+[options="header",cols="1,1"]
+|=============================
+|WIP State       |Default
+|Ready for review|owner, reviewers, CCs, stars, NEW_PATCHSETS watchers
+|Work in progress|owner
+|=============================
 
 [[get-topic]]
 === Get Topic
@@ -927,6 +979,8 @@ If the change has no assignee the response is "`204 No Content`".
 Returns a list of every user ever assigned to a change, in the order in which
 they were first assigned.
 
+[NOTE] Past assignees are only available when NoteDb is enabled.
+
 .Request
 ----
   GET /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/past_assignees HTTP/1.0
@@ -1032,6 +1086,36 @@ describing the account of the deleted assignee is returned.
 ----
 
 If the change had no assignee the response is "`204 No Content`".
+
+[[get-pure-revert]]
+=== Get Pure Revert
+--
+'GET /changes/link:#change-id[\{change-id\}]/pure_revert'
+--
+
+Check if the given change is a pure revert of the change it references in `revertOf`.
+Optionally, the query parameter `o` can be passed in to specify a commit (SHA1 in
+40 digit hex representation) to check against. It takes precedence over `revertOf`.
+If the change has no reference in `revertOf`, the parameter is mandatory.
+
+As response a link:#pure-revert-info[PureRevertInfo] entity is returned.
+
+.Request
+----
+  GET /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/pure_revert?o=247bccf56ae47634650bcc08b8aa784c3580ccas HTTP/1.0
+----
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  {
+    "is_pure_revert" : false
+  }
+----
 
 [[abandon-change]]
 === Abandon Change
@@ -1311,6 +1395,9 @@ describes the moved change.
     }
   }
 ----
+
+Note that this endpoint will not update the change's parents, which is
+different from the link:#cherry-pick[cherry-pick] endpoint.
 
 If the change cannot be moved because the change state doesn't
 allow moving the change, the response is "`409 Conflict`" and
@@ -1761,25 +1848,6 @@ message if the set of changes to be submitted with this change
 includes changes the caller cannot read.
 
 
-[[publish-draft-change]]
-=== Publish Draft Change
---
-'POST /changes/link:#change-id[\{change-id\}]/publish'
---
-
-Publishes a draft change.
-
-.Request
-----
-  POST /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/publish HTTP/1.0
-  Content-Type: application/json; charset=UTF-8
-----
-
-.Response
-----
-  HTTP/1.1 204 No Content
-----
-
 [[delete-change]]
 === Delete Change
 --
@@ -1791,10 +1859,6 @@ Deletes a change.
 New or abandoned changes can be deleted by their owner if the user is granted
 the link:access-control.html#category_delete_own_changes[Delete Own Changes] permission,
 otherwise only by administrators.
-
-Draft changes can only be deleted by their owner or other users who have the
-permissions to view and delete drafts. If the draft workflow is disabled, only
-administrators with those permissions may delete draft changes.
 
 .Request
 ----
@@ -2121,7 +2185,7 @@ Only the change owner, a project owner, or an administrator may fix changes.
 ----
 
 [[set-work-in-pogress]]
-== Set Work-In-Progress
+=== Set Work-In-Progress
 --
 'POST /changes/link:#change-id[\{change-id\}]/wip'
 --
@@ -2149,7 +2213,7 @@ notifying *OWNER* instead of *ALL*.
 ----
 
 [[set-ready-for-review]]
-== Set Ready-For-Review
+=== Set Ready-For-Review
 --
 'POST /changes/link:#change-id[\{change-id\}]/ready'
 --
@@ -2275,13 +2339,13 @@ Un-marks a change as ignored.
   PUT /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/unignore HTTP/1.0
 ----
 
-[[mute]]
-=== Mute
+[[mark-as-reviewed]]
+=== Mark as Reviewed
 --
-'PUT /changes/link:#change-id[\{change-id\}]/mute'
+'PUT /changes/link:#change-id[\{change-id\}]/reviewed'
 --
 
-Marks a change as muted.
+Marks a change as reviewed.
 
 This allows users to "de-highlight" changes in their dashboard until a new
 patch set is uploaded.
@@ -2293,21 +2357,97 @@ link:#unignore[unignored] again.
 
 .Request
 ----
-  PUT /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/mute HTTP/1.0
+  PUT /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/reviewed HTTP/1.0
 ----
 
-[[unmute]]
-=== Unmute
+[[mark-as-unreviewed]]
+=== Mark as Unreviewed
 --
-'PUT /changes/link:#change-id[\{change-id\}]/unmute'
+'PUT /changes/link:#change-id[\{change-id\}]/unreviewed'
 --
 
-Unmutes a change.
+Marks a change as unreviewed.
+
+This allows users to "highlight" changes in their dashboard
 
 .Request
 ----
-  PUT /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/unmute HTTP/1.0
+  PUT /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/unreviewed HTTP/1.0
 ----
+
+[[get-hashtags]]
+=== Get Hashtags
+--
+'GET /changes/link:#change-id[\{change-id\}]/hashtags'
+--
+
+Gets the hashtags associated with a change.
+
+[NOTE] Hashtags are only available when NoteDb is enabled.
+
+.Request
+----
+  GET /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/hashtags HTTP/1.0
+----
+
+As response the change's hashtags are returned as a list of strings.
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  [
+    "hashtag1",
+    "hashtag2"
+  ]
+----
+
+[[set-hashtags]]
+=== Set Hashtags
+--
+'POST /changes/link:#change-id[\{change-id\}]/hashtags'
+--
+
+Adds and/or removes hashtags from a change.
+
+[NOTE] Hashtags are only available when NoteDb is enabled.
+
+The hashtags to add or remove must be provided in the request body inside a
+link:#hashtags-input[HashtagsInput] entity.
+
+.Request
+----
+  POST /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/hashtags HTTP/1.0
+  Content-Type: application/json; charset=UTF-8
+
+  {
+    "add" : [
+      "hashtag3"
+    ],
+    "remove" : [
+      "hashtag2"
+    ]
+  }
+----
+
+As response the change's hashtags are returned as a list of strings.
+
+.Response
+----
+  HTTP/1.1 200 OK
+  Content-Disposition: attachment
+  Content-Type: application/json; charset=UTF-8
+
+  )]}'
+  [
+    "hashtag1",
+    "hashtag3"
+  ]
+----
+
 
 [[edit-endpoints]]
 == Change Edit Endpoints
@@ -2678,78 +2818,6 @@ As response "`204 No Content`" is returned.
   HTTP/1.1 204 No Content
 ----
 
-[[get-hashtags]]
-=== Get Hashtags
---
-'GET /changes/link:#change-id[\{change-id\}]/hashtags'
---
-
-Gets the hashtags associated with a change.
-
-[NOTE] Hashtags are only available when NoteDb is enabled.
-
-.Request
-----
-  GET /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/hashtags HTTP/1.0
-----
-
-As response the change's hashtags are returned as a list of strings.
-
-.Response
-----
-  HTTP/1.1 200 OK
-  Content-Disposition: attachment
-  Content-Type: application/json; charset=UTF-8
-
-  )]}'
-  [
-    "hashtag1",
-    "hashtag2"
-  ]
-----
-
-[[set-hashtags]]
-=== Set Hashtags
---
-'POST /changes/link:#change-id[\{change-id\}]/hashtags'
---
-
-Adds and/or removes hashtags from a change.
-
-[NOTE] Hashtags are only available when NoteDb is enabled.
-
-The hashtags to add or remove must be provided in the request body inside a
-link:#hashtags-input[HashtagsInput] entity.
-
-.Request
-----
-  POST /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/hashtags HTTP/1.0
-  Content-Type: application/json; charset=UTF-8
-
-  {
-    "add" : [
-      "hashtag3"
-    ],
-    "remove" : [
-      "hashtag2"
-    ]
-  }
-----
-
-As response the change's hashtags are returned as a list of strings.
-
-.Response
-----
-  HTTP/1.1 200 OK
-  Content-Disposition: attachment
-  Content-Type: application/json; charset=UTF-8
-
-  )]}'
-  [
-    "hashtag1",
-    "hashtag3"
-  ]
-----
 
 [[reviewer-endpoints]]
 == Reviewer Endpoints
@@ -2806,6 +2874,8 @@ As result a list of link:#reviewer-info[ReviewerInfo] entries is returned.
 
 Suggest the reviewers for a given query `q` and result limit `n`. If result
 limit is not passed, then the default 10 is used.
+
+Groups can be excluded from the results by specifying 'e=f'.
 
 As result a list of link:#suggested-reviewer-info[SuggestedReviewerInfo] entries is returned.
 
@@ -3130,27 +3200,6 @@ request:
   HTTP/1.1 204 No Content
 ----
 
-[[set-message]]
-=== Set Commit Message
---
-'PUT /changes/link:#change-id[\{change-id\}]/message'
---
-
-Creates a new patch set with a new commit message.
-
-The new commit message must be provided in the request body inside a
-link:#commit-message-input[CommitMessageInput] entity and contain the change ID footer if
-link:project-configuration.html#require-change-id[Require Change-Id] was specified.
-
-.Request
-----
-  PUT /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/message HTTP/1.0
-  Content-Type: application/json; charset=UTF-8
-
-  {
-    "message": "New Commit message \n\nChange-Id: I10394472cbd17dd12454f229e4f6de00b143a444\n"
-  }
-----
 
 [[revision-endpoints]]
 == Revision Endpoints
@@ -3535,6 +3584,7 @@ describing the related changes.
   {
     "changes": [
       {
+        "project": "gerrit",
         "change_id": "Ic62ae3103fca2214904dbf2faf4c861b5f0ae9b5",
         "commit": {
           "commit": "78847477532e386f5a2185a4e8c90b2509e354e3",
@@ -3557,6 +3607,7 @@ describing the related changes.
         "status": "NEW"
       },
       {
+        "project": "gerrit",
         "change_id": "I5e4fc08ce34d33c090c9e0bf320de1b17309f774",
         "commit": {
           "commit": "b1cb4caa6be46d12b94c25aa68aebabcbb3f53fe",
@@ -3590,7 +3641,7 @@ describing the related changes.
 --
 
 Sets a review on a revision, optionally also publishing draft comments, setting
-labels, and adding reviewers or CCs.
+labels, adding reviewers or CCs, and modifying the work in progress property.
 
 The review must be provided in the request body as a
 link:#review-input[ReviewInput] entity.
@@ -3777,6 +3828,7 @@ the `errors` field set containing details of why they failed.
   }
 ----
 
+[[set-review-notifications]]
 .Notifications
 
 An email will be sent using the "comment" template.
@@ -3953,44 +4005,6 @@ message is contained in the response body.
   Content-Type: text/plain; charset=UTF-8
 
   "revision 674ac754f91e64a0efb8087e59a176484bd534d1 is not current revision"
-----
-
-[[publish-draft-revision]]
-=== Publish Draft Revision
---
-'POST /changes/link:#change-id[\{change-id\}]/revisions/link:#revision-id[\{revision-id\}]/publish'
---
-
-Publishes a draft revision.
-
-.Request
-----
-  POST /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/revisions/current/publish HTTP/1.0
-  Content-Type: application/json; charset=UTF-8
-----
-
-.Response
-----
-  HTTP/1.1 204 No Content
-----
-
-[[delete-draft-revision]]
-=== Delete Draft Revision
---
-'DELETE /changes/link:#change-id[\{change-id\}]/revisions/link:#revision-id[\{revision-id\}]'
---
-
-Deletes a draft revision.
-
-.Request
-----
-  DELETE /changes/myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940/revisions/674ac754f91e64a0efb8087e59a176484bd534d1 HTTP/1.0
-  Content-Type: application/json; charset=UTF-8
-----
-
-.Response
-----
-  HTTP/1.1 204 No Content
 ----
 
 [[get-patch]]
@@ -5198,6 +5212,9 @@ Deletes the reviewed flag of the calling user from a file of a revision.
 
 Cherry picks a revision to a destination branch.
 
+To cherry pick a commit with no change-id associated with it, see
+link:rest-api-projects.html#cherry-pick-commit[CherryPickCommit].
+
 The commit message and destination branch must be provided in the request body inside a
 link:#cherrypick-input[CherryPickInput] entity.  If the commit message
 does not specify a Change-Id, a new one is picked for the destination change.
@@ -5377,17 +5394,22 @@ request:
 
 [[change-id]]
 === \{change-id\}
-Identifier that uniquely identifies one change.
+Identifier that uniquely identifies one change. It contains the URL-encoded
+project name as well as the change number: "'$$<project>~<numericId>$$'"
 
-This can be:
+Depending on the server's configuration, Gerrit can still support the following
+deprecated identifiers. These will be removed in a future release:
 
-* an ID of the change in the format "'$$<project>~<numericId>$$'"
 * an ID of the change in the format "'$$<project>~<branch>~<Change-Id>$$'",
   where for the branch the `refs/heads/` prefix can be omitted
   ("$$myProject~master~I8473b95934b5732ac55d26311a706c9c2bde9940$$")
 * a Change-Id if it uniquely identifies one change
   ("I8473b95934b5732ac55d26311a706c9c2bde9940")
 * a numeric change ID ("4247")
+
+If you need more time to migrate off of old change IDs, please see
+link:config-gerrit.html#change.api.allowedIdentifier[change.api.allowedIdentifier]
+for more information on how to enable the use of deprecated identifiers.
 
 [[comment-id]]
 === \{comment-id\}
@@ -5610,11 +5632,17 @@ where 'project', 'branch' and 'Change-Id' are URL encoded. For 'branch' the
 The name of the target branch. +
 The `refs/heads/` prefix is omitted.
 |`topic`              |optional|The topic to which this change belongs.
+|`assignee`           |optional|
+The assignee of the change as an link:rest-api-accounts.html#account-info[
+AccountInfo] entity.
+|`hashtags`           |optional|
+List of hashtags that are set on the change (only populated when NoteDb
+is enabled).
 |`change_id`          ||The Change-Id of the change.
 |`subject`            ||
 The subject of the change (header line of the commit message).
 |`status`             ||
-The status of the change (`NEW`, `MERGED`, `ABANDONED`, `DRAFT`).
+The status of the change (`NEW`, `MERGED`, `ABANDONED`).
 |`created`            ||
 The link:rest-api.html#timestamp[timestamp] of when the change was
 created.
@@ -5624,6 +5652,9 @@ updated.
 |`submitted`          |only set for merged changes|
 The link:rest-api.html#timestamp[timestamp] of when the change was
 submitted.
+|`submitter`          |only set for merged changes|
+The user who submitted the change, as an
+link:rest-api-accounts.html#account-info[ AccountInfo] entity.
 |`starred`            |not set if `false`|
 Whether the calling user has starred this change with the default label.
 |`stars`              |optional|
@@ -5631,15 +5662,14 @@ A list of star labels that are applied by the calling user to this
 change. The labels are lexicographically sorted.
 |`reviewed`           |not set if `false`|
 Whether the change was reviewed by the calling user.
-|`muted`              |not set if `false`|
-Whether the change has been link:#mute[muted] by the calling user.
 Only set if link:#reviewed[reviewed] is requested.
 |`submit_type`        |optional|
 The link:project-configuration.html#submit_type[submit type] of the change. +
 Not set for merged changes.
 |`mergeable`          |optional|
 Whether the change is mergeable. +
-Not set for merged changes, or if the change has not yet been tested.
+Not set for merged changes, if the change has not yet been tested, or
+if the link:#skip_mergeable[skip_mergeable] option is set.
 |`submittable`        |optional|
 Whether the change has been approved by the project submit rules. +
 Only set if link:#submittable[requested].
@@ -5704,6 +5734,10 @@ patch set to a link:#revision-info[RevisionInfo] entity. +
 Only set if link:#current-revision[the current revision] is requested
 (in which case it will only contain a key for the current revision) or
 if link:#all-revisions[all revisions] are requested.
+|`tracking_ids`       |optional|
+A list of link:#tracking-id-info[TrackingIdInfo] entities describing
+references to external tracking systems. Only set if
+link:#tracking-ids[tracking ids] are requested.
 |`_more_changes`      |optional, not set if `false`|
 Whether the query would deliver more results if not limited. +
 Only set on the last change that is returned.
@@ -5714,8 +5748,10 @@ problems with this change. Only set if link:#check[CHECK] is set.
 When present, change is marked as private.
 |`work_in_progress`   |optional, not set if `false`|
 When present, change is marked as Work In Progress.
-|`has_started_review` |optional, not set if `false`|
+|`has_review_started` |optional, not set if `false`|
 When present, change has been marked Ready at some point in time.
+|`revert_of`          |optional|
+The numeric Change-Id of the change that this change reverts.
 |==================================
 
 [[change-input]]
@@ -5733,7 +5769,7 @@ The `refs/heads/` prefix is omitted.
 The subject of the change (header line of the commit message).
 |`topic`              |optional|The topic to which this change belongs.
 |`status`             |optional, default to `NEW`|
-The status of the change (only `NEW` and `DRAFT` accepted here).
+The status of the change (only `NEW` accepted here).
 |`is_private`         |optional, default to `false`|
 Whether the new change should be marked as private.
 |`work_in_progress`   |optional, default to `false`|
@@ -5806,6 +5842,8 @@ If not set, the default is `NONE`.
 |`notify_details`   |optional|
 Additional information about whom to notify about the update as a map
 of recipient type to link:#notify-info[NotifyInfo] entity.
+|`keep_reviewers`   |optional, defaults to false|
+If true, carries reviewers and ccs over from original change to newly created one.
 |===========================
 
 [[comment-info]]
@@ -5956,7 +5994,7 @@ the commit message of a change.
 Notify handling that defines to whom email notifications should be sent
 after the commit message was updated. +
 Allowed values are `NONE`, `OWNER`, `OWNER_REVIEWERS` and `ALL`. +
-If not set, the default is `ALL`.
+If not set, the default is `OWNER` for WIP changes and `ALL` otherwise.
 |`notify_details`|optional|
 Additional information about whom to notify about the update as a map
 of recipient type to link:#notify-info[NotifyInfo] entity.
@@ -6379,7 +6417,7 @@ change.
 |Field Name      ||Description
 |`submit_type`   ||
 Submit type used for this change, can be `MERGE_IF_NECESSARY`,
-`FAST_FORWARD_ONLY`, `REBASE_IF_NECESSARY`, `MERGE_ALWAYS` or
+`FAST_FORWARD_ONLY`, `REBASE_IF_NECESSARY`, `REBASE_ALWAYS`, `MERGE_ALWAYS` or
 `CHERRY_PICK`.
 |`strategy`     |optional|
 The strategy of the merge, can be `recursive`, `resolve`,
@@ -6425,7 +6463,10 @@ The new subject for the change, if not specified, will reuse the current patch
 set's subject
 |`inheritParent`      |optional, default to `false`|
 Use the current patch set's first parent as the merge tip when set to `true`.
-Otherwise, use the current branch tip of the destination branch.
+|`base_change`        |optional|
+A link:#change-id[\{change-id\}] that identifies a change. When `inheritParent`
+is `false`, the merge tip will be the current patch set of the `base_change` if
+it's set. Otherwise, the current branch tip of the destination branch will be used.
 |`merge`              ||
 The detail of the source commit for merge as a link:#merge-input[MergeInput]
 entity.
@@ -6508,6 +6549,16 @@ Additional information about whom to notify about the update as a map
 of recipient type to link:#notify-info[NotifyInfo] entity.
 |=============================
 
+[[pure-revert-info]]
+=== PureRevertInfo
+The `PureRevertInfo` entity describes the result of a pure revert check.
+
+[options="header",cols="1,6"]
+|======================
+|Field Name      |Description
+|`is_pure_revert`  |Outcome of the check as boolean.
+|======================
+
 [[push-certificate-info]]
 === PushCertificateInfo
 The `PushCertificateInfo` entity contains information about a push
@@ -6560,6 +6611,7 @@ a related change and commit.
 [options="header",cols="1,^1,5"]
 |===========================
 |Field Name                ||Description
+|`project`                 ||The project of the change or commit.
 |`change_id`               |optional|The Change-Id of the change.
 |`commit`                  ||The commit as a
 link:#commit-info[CommitInfo] entity.
@@ -6567,7 +6619,7 @@ link:#commit-info[CommitInfo] entity.
 |`_revision_number`        |optional|The revision number.
 |`_current_revision_number`|optional|The current revision number.
 |`status`                  |optional|The status of the change. The status of
-the change is one of (`NEW`, `MERGED`, `ABANDONED`, `DRAFT`).
+the change is one of (`NEW`, `MERGED`, `ABANDONED`).
 |===========================
 
 [[related-changes-info]]
@@ -6664,23 +6716,15 @@ list of link:#comment-input[CommentInput] entities.
 |`robot_comments`         |optional|
 The robot comments that should be added as a map that maps a file path
 to a list of link:#robot-comment-input[RobotCommentInput] entities.
-|`strict_labels`          |`true` if not set|
-Whether all labels are required to be within the user's permitted ranges
-based on access controls. +
-If `true`, attempting to use a label not granted to the user will fail
-the entire modify operation early. +
-If `false`, the operation will execute anyway, but the proposed labels
-will be modified to be the "best" value allowed by the access controls.
 |`drafts`                 |optional|
 Draft handling that defines how draft comments are handled that are
 already in the database but that were not also described in this
 input. +
-Allowed values are `DELETE`, `PUBLISH`, `PUBLISH_ALL_REVISIONS` and
-`KEEP`. All values except `PUBLISH_ALL_REVISIONS` operate only on drafts
-for a single revision. +
+Allowed values are `PUBLISH`, `PUBLISH_ALL_REVISIONS` and `KEEP`. All values
+except `PUBLISH_ALL_REVISIONS` operate only on drafts for a single revision. +
 Only `KEEP` is allowed when used in conjunction with `on_behalf_of`. +
-If not set, the default is `DELETE`, unless `on_behalf_of` is set, in
-which case the default is `KEEP` and any other value is disallowed.
+If not set, the default is `KEEP`. If `on_behalf_of` is set, then no other value
+besides `KEEP` is allowed.
 |`notify`                 |optional|
 Notify handling that defines to whom email notifications should be sent
 after the review is stored. +
@@ -6698,6 +6742,12 @@ have been granted `labelAs-NAME` permission for all keys of labels.
 |`reviewers`              |optional|
 A list of link:rest-api-changes.html#reviewer-input[ReviewerInput]
 representing reviewers that should be added to the change.
+|`ready`                  |optional|
+If true, and if the change is work in progress, then start review.
+It is an error for both `ready` and `work_in_progress` to be true.
+|`work_in_progress`         |optional|
+If true, mark the change as work in progress. It is an error for both
+`ready` and `work_in_progress` to be true.
 |============================
 
 [[review-result]]
@@ -6716,6 +6766,9 @@ Map of account or group identifier to
 link:rest-api-changes.html#add-reviewer-result[AddReviewerResult]
 representing the outcome of adding as a reviewer.
 Absent if no reviewer additions were requested.
+|`ready`                  |optional|
+If true, the change was moved from WIP to ready for review as a result of this
+action. Not set if false.
 |============================
 
 [[reviewer-info]]
@@ -6782,10 +6835,9 @@ link:#list-changes[Query Changes].
 [options="header",cols="1,^1,5"]
 |===========================
 |Field Name    ||Description
-|`draft`       |not set if `false`|Whether the patch set is a draft.
 |`kind`        ||The change kind. Valid values are `REWORK`, `TRIVIAL_REBASE`,
 `MERGE_FIRST_PARENT_UPDATE`, `NO_CODE_CHANGE`, and `NO_CHANGE`.
-|`_number`     ||The patch set number.
+|`_number`     ||The patch set number, or `edit` if the patch set is an edit.
 |`created`     ||
 The link:rest-api.html#timestamp[timestamp] of when the patch set was
 created.
@@ -7013,6 +7065,17 @@ The `TopicInput` entity contains information for setting a topic.
 |`topic`       |optional|The topic. +
 The topic will be deleted if not set.
 |===========================
+
+[[tracking-id-info]]
+=== TrackingIdInfo
+The `TrackingIdInfo` entity describes a reference to an external tracking system.
+
+[options="header",cols="1,6"]
+|======================
+|Field Name|Description
+|`system`  |The name of the external tracking system.
+|`id`      |The tracking id.
+|======================
 
 [[voting-range-info]]
 === VotingRangeInfo

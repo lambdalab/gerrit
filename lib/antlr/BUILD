@@ -1,3 +1,5 @@
+package(default_visibility = ["//java/com/google/gerrit/index:__pkg__"])
+
 [java_library(
     name = n,
     data = ["//lib:LICENSE-antlr"],
@@ -14,10 +16,13 @@ java_library(
     exports = ["@java_runtime//jar"],
 )
 
+# See https://github.com/bazelbuild/bazel/issues/3542
+# for why we need to tweak jvm flags in this rule.
 java_binary(
     name = "antlr-tool",
+    jvm_flags = ["-XX:-UsePerfData"],
     main_class = "org.antlr.Tool",
-    visibility = ["//gerrit-antlr:__pkg__"],
+    visibility = ["//antlr3:__pkg__"],
     runtime_deps = [":tool"],
 )
 

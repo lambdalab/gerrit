@@ -18,6 +18,7 @@
     'application/dart': 'dart',
     'application/json': 'json',
     'application/typescript': 'typescript',
+    'application/x-erb': 'erb',
     'text/css': 'css',
     'text/html': 'html',
     'text/javascript': 'js',
@@ -37,11 +38,14 @@
     'text/x-objectivec': 'objectivec',
     'text/x-ocaml': 'ocaml',
     'text/x-perl': 'perl',
+    'text/x-php': 'php',
     'text/x-protobuf': 'protobuf',
+    'text/x-puppet': 'puppet',
     'text/x-python': 'python',
     'text/x-ruby': 'ruby',
     'text/x-rustsrc': 'rust',
     'text/x-scala': 'scala',
+    'text/x-shell': 'shell',
     'text/x-sh': 'bash',
     'text/x-sql': 'sql',
     'text/x-swift': 'swift',
@@ -110,6 +114,7 @@
         type: Array,
         value() { return []; },
       },
+      /** @type {?number} */
       _processHandle: Number,
       _hljs: Object,
     },
@@ -122,7 +127,7 @@
      * Annotation layer method to add syntax annotations to the given element
      * for the given line.
      * @param {!HTMLElement} el
-     * @param {!GrDiffLine} line
+     * @param {!Object} line (GrDiffLine)
      */
     annotate(el, line) {
       if (!this.enabled) { return; }

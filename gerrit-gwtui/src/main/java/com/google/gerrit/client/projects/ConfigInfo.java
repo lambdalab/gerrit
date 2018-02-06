@@ -57,6 +57,9 @@ public class ConfigInfo extends JavaScriptObject {
   public final native InheritedBooleanInfo rejectImplicitMerges()
       /*-{ return this.reject_implicit_merges; }-*/ ;
 
+  public final native InheritedBooleanInfo privateByDefault()
+      /*-{ return this.private_by_default; }-*/ ;
+
   public final native InheritedBooleanInfo enableReviewerByEmail()
       /*-{ return this.enable_reviewer_by_email; }-*/ ;
 
@@ -66,6 +69,8 @@ public class ConfigInfo extends JavaScriptObject {
   public final SubmitType submitType() {
     return SubmitType.valueOf(submitTypeRaw());
   }
+
+  public final native SubmitTypeInfo defaultSubmitType() /*-{ return this.default_submit_type; }-*/;
 
   public final native NativeMap<NativeMap<ConfigParameterInfo>> pluginConfig()
       /*-{ return this.plugin_config || {}; }-*/ ;
@@ -228,5 +233,27 @@ public class ConfigInfo extends JavaScriptObject {
     }
 
     protected ConfigParameterValue() {}
+  }
+
+  public static class SubmitTypeInfo extends JavaScriptObject {
+    public final SubmitType value() {
+      return SubmitType.valueOf(valueRaw());
+    }
+
+    public final SubmitType configuredValue() {
+      return SubmitType.valueOf(configuredValueRaw());
+    }
+
+    public final SubmitType inheritedValue() {
+      return SubmitType.valueOf(inheritedValueRaw());
+    }
+
+    private final native String valueRaw() /*-{ return this.value; }-*/;
+
+    private final native String configuredValueRaw() /*-{ return this.configured_value; }-*/;
+
+    private final native String inheritedValueRaw() /*-{ return this.inherited_value; }-*/;
+
+    protected SubmitTypeInfo() {}
   }
 }

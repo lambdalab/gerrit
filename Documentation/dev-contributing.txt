@@ -147,6 +147,17 @@ Password tab of the user settings page].
 [[style]]
 === Style
 
+This project has a policy of Eclipse's warning free code. Eclipse
+configuration is added to git and we expect the changes to be
+warnings free.
+
+We do not ask you to use Eclipse for editing, obviously.  We do ask you
+to provide Eclipse's warning free patches only. If for some reasons, you
+are not able to set up Eclipse and verify, that your patch hasn't
+introduced any new Eclipse warnings, mention this in a comment to your
+change, so that reviewers will do it for you. Yes, the way to go is to
+extend gerrit CI to take care of this, but it's not yet implemented.
+
 Gerrit generally follows the
 link:https://google.github.io/styleguide/javaguide.html[Google Java Style
 Guide].
@@ -154,7 +165,7 @@ Guide].
 To format Java source code, Gerrit uses the
 link:https://github.com/google/google-java-format[`google-java-format`]
 tool (version 1.3), and to format Bazel BUILD and WORKSPACE files the
-link:https://github.com/bazelbuild/buildifier[`buildifier`] tool (version 0.4.5).
+link:https://github.com/bazelbuild/buildifier[`buildifier`] tool (version 0.6.0).
 These tools automatically apply format according to the style guides; this
 streamlines code review by reducing the need for time-consuming, tedious,
 and contentious discussions about trivial issues like whitespace.

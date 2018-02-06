@@ -16,7 +16,17 @@
 
   Polymer({
     is: 'gr-label-score-row',
+
+    /**
+     * Fired when any label is changed.
+     *
+     * @event labels-changed
+     */
+
     properties: {
+      /**
+       * @type {{ name: string }}
+       */
       label: Object,
       labels: Object,
       name: {
@@ -28,6 +38,10 @@
       _selectedValueText: {
         type: String,
         value: 'No value selected',
+      },
+      _items: {
+        type: Array,
+        computed: '_computePermittedLabelValues(permittedLabels, label.name)',
       },
     },
 
@@ -52,20 +66,47 @@
     },
 
     _computeBlankItems(permittedLabels, label, side) {
-      if (!permittedLabels || !permittedLabels[label]) { return []; }
+      if (!permittedLabels || !permittedLabels[label] || !this.labelValues ||
+          !Object.keys(this.labelValues).length) {
+        return [];
+      }
       const startPosition = this.labelValues[parseInt(
-          permittedLabels[label][0])];
+          permittedLabels[label][0], 10)];
       if (side === 'start') {
         return new Array(startPosition);
       }
       const endPosition = this.labelValues[parseInt(
-          permittedLabels[label][permittedLabels[label].length - 1])];
+          permittedLabels[label][permittedLabels[label].length - 1], 10)];
       return new Array(Object.keys(this.labelValues).length - endPosition - 1);
+    },
+
+    _getLabelValue(labels, permittedLabels, label) {
+      if (label.value) {
+        return label.value;
+      } else if (labels[label.name].hasOwnProperty('default_value') &&
+                 permittedLabels.hasOwnProperty(label.name)) {
+        // default_value is an int, convert it to string label, e.g. "+1".
+        return permittedLabels[label.name].find(
+            value => parseInt(value, 10) === labels[label.name].default_value);
+      }
+    },
+
+    _computeButtonClass(value, index, totalItems) {
+      if (value < 0 && index === 0) {
+        return 'min';
+      } else if (value < 0) {
+        return 'negative';
+      } else if (value > 0 && index === totalItems - 1) {
+        return 'max';
+      } else if (value > 0) {
+        return 'positive';
+      }
+      return 'neutral';
     },
 
     _computeLabelValue(labels, permittedLabels, label) {
       if (!labels[label.name]) { return null; }
-      const labelValue = label.value;
+      const labelValue = this._getLabelValue(labels, permittedLabels, label);
       const len = permittedLabels[label.name] != null ?
           permittedLabels[label.name].length : 0;
       for (let i = 0; i < len; i++) {
@@ -82,6 +123,9 @@
       // nothing and then to the new item.
       if (!e.target.selectedItem) { return; }
       this._selectedValueText = e.target.selectedItem.getAttribute('title');
+      // Needed to update the style of the selected button.
+      this.updateStyles();
+      this.fire('labels-changed');
     },
 
     _computeAnyPermittedLabelValues(permittedLabels, label) {
@@ -98,7 +142,9 @@
     },
 
     _computeLabelValueTitle(labels, label, value) {
-      return labels[label] && labels[label].values[value];
+      return labels[label] &&
+        labels[label].values &&
+        labels[label].values[value];
     },
   });
 })();

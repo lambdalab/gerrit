@@ -48,7 +48,7 @@
        * suggestion entry. The "value" property will be emitted if that
        * suggestion is selected.
        *
-       * @type {function(String): Promise<Array<Object>>}
+       * @type {function(string): Promise<?>}
        */
       query: {
         type: Function,
@@ -61,15 +61,26 @@
 
       /**
        * The number of characters that must be typed before suggestions are
-       * made.
+       * made. If threshold is zero, default suggestions are enabled.
        */
       threshold: {
         type: Number,
         value: 1,
       },
 
+      allowNonSuggestedValues: Boolean,
       borderless: Boolean,
       disabled: Boolean,
+      showSearchIcon: {
+        type: Boolean,
+        value: false,
+      },
+      // Vertical offset needed for a 1em font-size with no vertical padding.
+      // Inputs with additional padding will need to increase vertical offset.
+      verticalOffset: {
+        type: Number,
+        value: 20,
+      },
 
       text: {
         type: String,
@@ -87,14 +98,18 @@
 
       /**
        * When true, tab key autocompletes but does not fire the commit event.
-       * See Issue 4556.
+       * When false, tab key not caught, and focus is removed from the element.
+       * See Issue 4556, Issue 6645.
        */
-      tabCompleteWithoutCommit: {
+      tabComplete: {
         type: Boolean,
         value: false,
       },
 
-      value: Object,
+      value: {
+        type: String,
+        notify: true,
+      },
 
       /**
        * Multi mode appends autocompleted entries to the value.
@@ -114,6 +129,7 @@
         value: false,
       },
 
+      /** @type {?} */
       _suggestions: {
         type: Array,
         value() { return []; },
@@ -133,8 +149,14 @@
         type: Boolean,
         value: false,
       },
+
+      /** The DOM element of the selected suggestion. */
       _selected: Object,
     },
+
+    observers: [
+      '_maybeOpenDropdown(_suggestions, _focused)',
+    ],
 
     attached() {
       this.listen(document.body, 'tap', '_handleBodyTap');
@@ -153,7 +175,9 @@
     },
 
     selectAll() {
-      this.$.input.setSelectionRange(0, this.$.input.value.length);
+      const nativeInputElement = this.$.input.inputElement;
+      if (!this.$.input.value) { return; }
+      nativeInputElement.setSelectionRange(0, this.$.input.value.length);
     },
 
     clear() {
@@ -161,18 +185,19 @@
     },
 
     _handleItemSelect(e) {
-      let silent = false;
-      if (e.detail.trigger === 'tab' && this.tabCompleteWithoutCommit) {
-        silent = true;
-      }
+      // Let _handleKeydown deal with keyboard interaction.
+      if (e.detail.trigger !== 'tap') { return; }
       this._selected = e.detail.selected;
-      this._commit(silent);
-      this.focus();
+      this._commit();
+    },
+
+    get _inputElement() {
+      return this.$.input;
     },
 
     /**
      * Set the text of the input without triggering the suggestion dropdown.
-     * @param {String} text The new text for the input.
+     * @param {string} text The new text for the input.
      */
     setText(text) {
       this._disableSuggestions = true;
@@ -184,18 +209,22 @@
       this._focused = true;
       this._updateSuggestions();
       this.$.input.classList.remove('warnUncommitted');
+      // Needed so that --paper-input-container-input updated style is applied.
+      this.updateStyles();
     },
 
     _onInputBlur() {
       this.$.input.classList.toggle('warnUncommitted',
-          this.warnUncommitted && this.text.length);
+          this.warnUncommitted && this.text.length && !this._focused);
+      // Needed so that --paper-input-container-input updated style is applied.
+      this.updateStyles();
     },
 
     _updateSuggestions() {
-      if (!this.text || this._disableSuggestions) { return; }
-      if (this.text.length < this.threshold) {
+      if (this._disableSuggestions) { return; }
+      if (this.text === undefined || this.text.length < this.threshold) {
         this._suggestions = [];
-        this.value = null;
+        this.value = '';
         return;
       }
       const text = this.text;
@@ -211,13 +240,16 @@
         this._suggestions = suggestions;
         Polymer.dom.flush();
         if (this._index === -1) {
-          this.value = null;
+          this.value = '';
         }
       });
     },
 
-    _computeSuggestionsHidden(suggestions, focused) {
-      return !(suggestions.length && focused);
+    _maybeOpenDropdown(suggestions, focused) {
+      if (suggestions.length > 0 && focused) {
+        return this.$.suggestions.open();
+      }
+      return this.$.suggestions.close();
     },
 
     _computeClass(borderless) {
@@ -244,35 +276,44 @@
           this._cancel();
           break;
         case 9: // Tab
-          if (this._suggestions.length > 0) {
+          if (this._suggestions.length > 0 && this.tabComplete) {
             e.preventDefault();
-            this._handleEnter(this.tabCompleteWithoutCommit);
+            this._handleInputCommit(true);
+            this.focus();
+          } else {
+            this._focused = false;
           }
           break;
         case 13: // Enter
           e.preventDefault();
-          this._handleEnter();
+          this._handleInputCommit();
           break;
         default:
           // For any normal keypress, return focus to the input to allow for
           // unbroken user input.
-          this.$.input.focus();
+          this.$.input.inputElement.focus();
       }
       this.fire('input-keydown', {keyCode: e.keyCode, input: this.$.input});
     },
 
     _cancel() {
       if (this._suggestions.length) {
-        this._suggestions = [];
+        this.set('_suggestions', []);
       } else {
         this.fire('cancel');
       }
     },
 
-    _handleEnter(opt_tabCompleteWithoutCommit) {
+    /**
+     * @param {boolean=} opt_tabComplete
+     */
+    _handleInputCommit(opt_tabComplete) {
+      // Nothing to do if the dropdown is not open.
+      if (!this.allowNonSuggestedValues
+          && this.$.suggestions.isHidden) { return; }
+
       this._selected = this.$.suggestions.getCursorTarget();
-      this._commit(opt_tabCompleteWithoutCommit);
-      this.focus();
+      this._commit(opt_tabComplete);
     },
 
     _updateValue(suggestion, suggestions) {
@@ -303,17 +344,16 @@
       e.stopPropagation();
       this.$.cursor.setCursor(e.target);
       this._commit();
-      this.focus();
     },
 
     /**
      * Commits the suggestion, optionally firing the commit event.
      *
-     * @param {Boolean} silent Allows for silent committing of an autocomplete
-     *     suggestion in order to handle cases like tab-to-complete without
-     *     firing the commit event.
+     * @param {boolean=} opt_silent Allows for silent committing of an
+     *     autocomplete suggestion in order to handle cases like tab-to-complete
+     *     without firing the commit event.
      */
-    _commit(silent) {
+    _commit(opt_silent) {
       // Allow values that are not in suggestion list iff suggestions are empty.
       if (this._suggestions.length > 0) {
         this._updateValue(this._selected, this._suggestions);
@@ -335,9 +375,15 @@
       }
 
       this._suggestions = [];
-      if (!silent) {
+      if (!opt_silent) {
         this.fire('commit', {value});
       }
+
+      this._textChangedSinceCommit = false;
+    },
+
+    _computeShowSearchIconClass(showSearchIcon) {
+      return showSearchIcon ? 'showSearchIcon' : '';
     },
   });
 })();

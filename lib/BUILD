@@ -76,22 +76,18 @@ java_library(
 )
 
 java_library(
+    name = "j2objc",
+    data = ["//lib:LICENSE-Apache2.0"],
+    visibility = ["//visibility:public"],
+    exports = ["@j2objc//jar"],
+)
+
+java_library(
     name = "guava",
     data = ["//lib:LICENSE-Apache2.0"],
     visibility = ["//visibility:public"],
     exports = ["@guava//jar"],
-)
-
-java_library(
-    name = "velocity",
-    data = ["//lib:LICENSE-Apache2.0"],
-    visibility = ["//visibility:public"],
-    exports = ["@velocity//jar"],
-    runtime_deps = [
-        "//lib/commons:collections",
-        "//lib/commons:lang",
-        "//lib/commons:oro",
-    ],
+    runtime_deps = [":j2objc"],
 )
 
 java_library(
@@ -176,6 +172,7 @@ java_library(
 java_library(
     name = "jsr305",
     data = ["//lib:LICENSE-Apache2.0"],
+    visibility = ["//visibility:public"],
     exports = ["@jsr305//jar"],
 )
 
@@ -298,11 +295,4 @@ java_library(
     data = ["//lib:LICENSE-postgresql"],
     visibility = ["//visibility:public"],
     exports = ["@postgresql//jar"],
-)
-
-java_library(
-    name = "commons-io",
-    data = ["//lib:LICENSE-Apache2.0"],
-    visibility = ["//visibility:public"],
-    exports = ["@commons_io//jar"],
 )

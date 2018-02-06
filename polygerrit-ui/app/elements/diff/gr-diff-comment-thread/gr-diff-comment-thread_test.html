@@ -60,10 +60,9 @@ limitations under the License.
     test('comments are sorted correctly', () => {
       const comments = [
         {
-          id: 'jacks_reply',
           message: 'i like you, too',
           in_reply_to: 'sallys_confession',
-          updated: '2015-12-25 15:00:20.396000000',
+          __date: new Date('2015-12-25'),
         }, {
           id: 'sallys_confession',
           message: 'i like you, jack',
@@ -113,10 +112,9 @@ limitations under the License.
           message: 'i have to find santa',
           updated: '2015-12-24 15:00:20.396000000',
         }, {
-          id: 'jacks_reply',
           message: 'i like you, too',
           in_reply_to: 'sallys_confession',
-          updated: '2015-12-25 15:00:20.396000000',
+          __date: new Date('2015-12-25'),
         },
       ]);
     });
@@ -160,6 +158,17 @@ limitations under the License.
       showActions = true;
       lastComment.__draft = true;
       assert.equal(element._hideActions(showActions, lastComment), true);
+    });
+
+    test('setting project name loads the project config', done => {
+      const projectName = 'foo/bar/baz';
+      const getProjectStub = sandbox.stub(element.$.restAPI, 'getProjectConfig')
+          .returns(Promise.resolve({}));
+      element.projectName = projectName;
+      flush(() => {
+        assert.isTrue(getProjectStub.calledWithExactly(projectName));
+        done();
+      });
     });
   });
 
@@ -500,6 +509,13 @@ limitations under the License.
         element._setInitialExpandedState();
         for (let i = 0; i < element.comments.length; i++) {
           assert.isTrue(element.comments[i].collapsed);
+        }
+        for (let i = 0; i < element.comments.length; i++) {
+          element.comments[i].robot_id = 123;
+        }
+        element._setInitialExpandedState();
+        for (let i = 0; i < element.comments.length; i++) {
+          assert.isFalse(element.comments[i].collapsed);
         }
       });
     });

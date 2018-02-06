@@ -17,21 +17,6 @@ def documentation_attributes():
     "revnumber=%s",
   ]
 
-def release_notes_attributes():
-  return [
-    'toc',
-    'newline="\\n"',
-    'asterisk="&#42;"',
-    'plus="&#43;"',
-    'caret="&#94;"',
-    'startsb="&#91;"',
-    'endsb="&#93;"',
-    'tilde="&#126;"',
-    'last-update-label!',
-    'stylesheet=DEFAULT',
-    'linkcss=true',
-  ]
-
 def _replace_macros_impl(ctx):
   cmd = [
     ctx.file._exe.path,
@@ -43,10 +28,11 @@ def _replace_macros_impl(ctx):
     cmd.append('--searchbox')
   else:
     cmd.append('--no-searchbox')
-  ctx.action(
+  ctx.actions.run_shell(
     inputs = [ctx.file._exe, ctx.file.src],
     outputs = [ctx.outputs.out],
     command = cmd,
+    use_default_shell_env = True,
     progress_message = "Replacing macros in %s" % ctx.file.src.short_path,
   )
 
@@ -107,7 +93,7 @@ def _asciidoc_impl(ctx):
     "--out-ext", ".html",
   ]
   args.extend(_generate_asciidoc_args(ctx))
-  ctx.action(
+  ctx.actions.run(
     inputs = ctx.files.srcs + [ctx.executable._exe, ctx.file.version],
     outputs = ctx.outputs.outs,
     executable = ctx.executable._exe,
@@ -136,9 +122,9 @@ _asciidoc_attrs = {
 }
 
 _asciidoc = rule(
-    attrs = _asciidoc_attrs + {
+    attrs = dict(_asciidoc_attrs.items() + {
         "outs": attr.output_list(mandatory = True),
-    },
+    }.items()),
     implementation = _asciidoc_impl,
 )
 
@@ -211,7 +197,7 @@ def _asciidoc_html_zip_impl(ctx):
     "--out-ext", ".html",
   ]
   args.extend(_generate_asciidoc_args(ctx))
-  ctx.action(
+  ctx.actions.run(
     inputs = ctx.files.srcs + [ctx.executable._exe, ctx.file.version],
     outputs = [ctx.outputs.out],
     executable = ctx.executable._exe,
@@ -254,7 +240,7 @@ def _asciidoc_zip_impl(ctx):
   cmd = [
     "p=$PWD",
     "rm -rf %s" % tmpdir,
-    "mkdir %s" % tmpdir,
+    "mkdir -p %s/%s/" % (tmpdir, ctx.attr.directory),
     "unzip -q %s -d %s/%s/" % (ctx.file.src.path, tmpdir, ctx.attr.directory),
   ]
   for r in ctx.files.resources:
@@ -268,7 +254,7 @@ def _asciidoc_zip_impl(ctx):
     "cd %s" % tmpdir,
     "zip -qr $p/%s *" % ctx.outputs.out.path,
   ])
-  ctx.action(
+  ctx.actions.run_shell(
     inputs = [ctx.file.src] + ctx.files.resources,
     outputs = [ctx.outputs.out],
     command = " && ".join(cmd),

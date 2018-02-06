@@ -231,6 +231,57 @@ limitations under the License.
           change1, change2).indexOf('thisChange'), -1);
     });
 
+    test('event for section loaded fires for each section ', () => {
+      const loadedStub = sandbox.stub();
+      element.patchNum = 7;
+      element.change = {
+        change_id: 123,
+        status: 'NEW',
+      };
+      element.mergeable = true;
+      element.addEventListener('new-section-loaded', loadedStub);
+      sandbox.stub(element, '_getRelatedChanges')
+          .returns(Promise.resolve({changes: []}));
+      sandbox.stub(element, '_getSubmittedTogether')
+          .returns(Promise.resolve());
+      sandbox.stub(element, '_getCherryPicks')
+          .returns(Promise.resolve());
+      sandbox.stub(element, '_getConflicts')
+          .returns(Promise.resolve());
+
+      return element.reload().then(() => {
+        assert.equal(loadedStub.callCount, 4);
+      });
+    });
+
+    suite('_getConflicts resolves undefined', () => {
+      let element;
+
+      setup(() => {
+        element = fixture('basic');
+
+        sandbox.stub(element, '_getRelatedChanges')
+            .returns(Promise.resolve({changes: []}));
+        sandbox.stub(element, '_getSubmittedTogether')
+            .returns(Promise.resolve());
+        sandbox.stub(element, '_getCherryPicks')
+            .returns(Promise.resolve());
+        sandbox.stub(element, '_getConflicts')
+            .returns(Promise.resolve());
+      });
+
+      test('_conflicts are an empty array', () => {
+        element.patchNum = 7;
+        element.change = {
+          change_id: 123,
+          status: 'NEW',
+        };
+        element.mergeable = true;
+        element.reload();
+        assert.equal(element._conflicts.length, 0);
+      });
+    });
+
     suite('get conflicts tests', () => {
       let element;
       let conflictsStub;
@@ -238,15 +289,14 @@ limitations under the License.
       setup(() => {
         element = fixture('basic');
 
-        sandbox.stub(element, '_getRelatedChanges', () => {
-          return Promise.resolve({changes: []});
-        });
-        sandbox.stub(element, '_getSubmittedTogether',
-            () => { return Promise.resolve(); });
-        sandbox.stub(element, '_getCherryPicks',
-            () => { return Promise.resolve(); });
-        conflictsStub = sandbox.stub(element, '_getConflicts',
-            () => { return Promise.resolve(['test data']); });
+        sandbox.stub(element, '_getRelatedChanges')
+            .returns(Promise.resolve({changes: []}));
+        sandbox.stub(element, '_getSubmittedTogether')
+            .returns(Promise.resolve());
+        sandbox.stub(element, '_getCherryPicks')
+            .returns(Promise.resolve());
+        conflictsStub = sandbox.stub(element, '_getConflicts')
+          .returns(Promise.resolve());
       });
 
       test('request conflicts if open and mergeable', () => {
@@ -254,8 +304,8 @@ limitations under the License.
         element.change = {
           change_id: 123,
           status: 'NEW',
-          mergeable: true,
         };
+        element.mergeable = true;
         element.reload();
         assert.isTrue(conflictsStub.called);
       });
@@ -265,7 +315,6 @@ limitations under the License.
         element.change = {
           change_id: 123,
           status: 'MERGED',
-          mergeable: true,
         };
         element.reload();
         assert.isFalse(conflictsStub.called);
@@ -276,8 +325,8 @@ limitations under the License.
         element.change = {
           change_id: 123,
           status: 'NEW',
-          mergeable: false,
         };
+        element.mergeable = false;
         element.reload();
         assert.isFalse(conflictsStub.called);
       });
@@ -287,8 +336,8 @@ limitations under the License.
         element.change = {
           change_id: 123,
           status: 'MERGED',
-          mergeable: false,
         };
+        element.mergeable = false;
         element.reload();
         assert.isFalse(conflictsStub.called);
       });
@@ -310,12 +359,35 @@ limitations under the License.
           true);
     });
 
-    test('clear hides', () => {
-      element.loading = false;
+    test('clear and empties', () => {
+      const changes = [{
+        project: 'foo/bar',
+        change_id: 'Ideadbeef',
+        commit: {
+          commit: 'deadbeef',
+          parents: [{commit: 'abc123'}],
+          author: {},
+          subject: 'do that thing',
+        },
+        _change_number: 12345,
+        _revision_number: 1,
+        _current_revision_number: 1,
+        status: 'NEW',
+      }];
+      element._relatedResponse = {changes};
+      element._submittedTogether = changes;
+      element._conflicts = changes;
+      element._cherryPicks = changes;
+      element._sameTopic = changes;
+
       element.hidden = false;
       element.clear();
-      assert.isTrue(element.loading);
       assert.isTrue(element.hidden);
+      assert.equal(element._relatedResponse.changes.length, 0);
+      assert.equal(element._submittedTogether.length, 0);
+      assert.equal(element._conflicts.length, 0);
+      assert.equal(element._cherryPicks.length, 0);
+      assert.equal(element._sameTopic.length, 0);
     });
 
     test('update fires', () => {
@@ -329,6 +401,12 @@ limitations under the License.
       element._resultsChanged([], [], [], [], ['test']);
       assert.isFalse(element.hidden);
       assert.isTrue(updateHandler.called);
+    });
+
+    test('_computeChangeURL uses Gerrit.Nav', () => {
+      const getUrlStub = sandbox.stub(Gerrit.Nav, 'getUrlForChangeById');
+      element._computeChangeURL(123, 'abc/def', 12);
+      assert.isTrue(getUrlStub.called);
     });
   });
 </script>

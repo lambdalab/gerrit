@@ -199,6 +199,24 @@ the implicit merge check.
 Default is `INHERIT`, which means that this property is inherited from
 the parent project.
 
+[[change-section]]
+=== Change section
+
+The change section includes configuration for project-specific change settings:
+
+[[change.privateByDefault]]change.privateByDefault::
++
+Controls whether all new changes in the project are set as private by default.
++
+Note that a new change will be public if the `is_private` field in
+link:rest-api-changes.html#change-input[ChangeInput] is set to `false` explicitly
+when calling the link:rest-api-changes.html#create-change[CreateChange] REST API
+or the `remove-private` link:user-upload.html#private[PushOption] is used during
+the Git push.
++
+Default is `INHERIT`, which means that this property is inherited from
+the parent project.
+
 [[submit-section]]
 === Submit section
 
@@ -217,6 +235,10 @@ submitter date upon submit, so that git log shows when the change was submitted 
 author last committed. Valid values are 'true', 'false', or 'INHERIT'. The default is 'INHERIT'.
 This option only takes effect in submit strategies which already modify the commit, i.e.
 Cherry Pick, Rebase Always, and (perhaps) Rebase If Necessary.
+
+- 'rejectEmptyCommit': Defines whether empty commits should be rejected when a change is merged.
+Changes might not seem empty at first but when attempting to merge, rebasing can lead to an empty
+commit. If this option is set to 'true' the merge would fail.
 
 Merge strategy
 
@@ -307,6 +329,8 @@ reviewers and CCs by email.
 +
 A boolean indicating if reviewers and CCs that do not currently have a Gerrit
 account can be added to a change by providing their email address.
+
+This setting only takes affect for changes that are readable by anonymous users.
 
 Default is `INHERIT`, which means that this property is inherited from
 the parent project. If the property is not set in any parent project, the

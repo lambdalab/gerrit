@@ -23,6 +23,8 @@ limitations under the License.
 <link rel="import" href="../../../test/common-test-setup.html"/>
 <link rel="import" href="gr-plugin-host.html">
 
+<script>void(0);</script>
+
 <test-fixture id="basic">
   <template>
     <gr-plugin-host></gr-plugin-host>
@@ -48,20 +50,126 @@ limitations under the License.
     test('counts plugins', () => {
       sandbox.stub(Gerrit, '_setPluginsCount');
       element.config = {
-        html_resource_paths: ['foo/bar', 'baz'],
-        js_resource_paths: ['42'],
+        plugin: {
+          html_resource_paths: ['foo/bar', 'baz'],
+          js_resource_paths: ['42'],
+        },
       };
       assert.isTrue(Gerrit._setPluginsCount.calledWith(3));
     });
 
-    test('imports html plugins from config', () => {
+    test('imports relative html plugins from config', () => {
       element.config = {
-        html_resource_paths: ['foo/bar', 'baz'],
+        plugin: {html_resource_paths: ['foo/bar', 'baz']},
       };
-      assert.isTrue(element.importHref.calledWith(
-          '/foo/bar', Gerrit._pluginInstalled, Gerrit._pluginInstalled, true));
-      assert.isTrue(element.importHref.calledWith(
-          '/baz', Gerrit._pluginInstalled, Gerrit._pluginInstalled, true));
+      assert.equal(element.importHref.firstCall.args[0], '/foo/bar');
+      assert.equal(element.importHref.firstCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isTrue(element.importHref.firstCall.args[3]);
+
+      assert.equal(element.importHref.secondCall.args[0], '/baz');
+      assert.equal(element.importHref.secondCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isTrue(element.importHref.secondCall.args[3]);
+    });
+
+    test('imports relative html plugins from config with a base url', () => {
+      sandbox.stub(element, 'getBaseUrl').returns('/the-base');
+      element.config = {
+        plugin: {html_resource_paths: ['foo/bar', 'baz']}};
+      assert.equal(element.importHref.firstCall.args[0], '/the-base/foo/bar');
+      assert.equal(element.importHref.firstCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isTrue(element.importHref.firstCall.args[3]);
+
+      assert.equal(element.importHref.secondCall.args[0], '/the-base/baz');
+      assert.equal(element.importHref.secondCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isTrue(element.importHref.secondCall.args[3]);
+    });
+
+    test('inportHref is not called with null callback functions', () => {
+      const plugins = ['path/to/plugin'];
+      element._importHtmlPlugins(plugins);
+      assert.isTrue(element.importHref.calledOnce);
+      assert.isFunction(element.importHref.lastCall.args[1]);
+      assert.isFunction(element.importHref.lastCall.args[2]);
+    });
+
+    test('imports absolute html plugins from config', () => {
+      element.config = {
+        plugin: {
+          html_resource_paths: [
+            'http://example.com/foo/bar',
+            'https://example.com/baz',
+          ],
+        },
+      };
+      assert.equal(element.importHref.firstCall.args[0],
+          'http://example.com/foo/bar');
+      assert.equal(element.importHref.firstCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isTrue(element.importHref.firstCall.args[3]);
+
+      assert.equal(element.importHref.secondCall.args[0],
+          'https://example.com/baz');
+      assert.equal(element.importHref.secondCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isTrue(element.importHref.secondCall.args[3]);
+    });
+
+    test('adds js plugins from config to the body', () => {
+      element.config = {plugin: {js_resource_paths: ['foo/bar', 'baz']}};
+      assert.isTrue(document.body.appendChild.calledTwice);
+    });
+
+    test('imports relative js plugins from config', () => {
+      sandbox.stub(element, '_createScriptTag');
+      element.config = {plugin: {js_resource_paths: ['foo/bar', 'baz']}};
+      assert.isTrue(element._createScriptTag.calledWith('/foo/bar'));
+      assert.isTrue(element._createScriptTag.calledWith('/baz'));
+    });
+
+    test('imports relative html plugins from config with a base url', () => {
+      sandbox.stub(element, '_createScriptTag');
+      sandbox.stub(element, 'getBaseUrl').returns('/the-base');
+      element.config = {plugin: {js_resource_paths: ['foo/bar', 'baz']}};
+      assert.isTrue(element._createScriptTag.calledWith('/the-base/foo/bar'));
+      assert.isTrue(element._createScriptTag.calledWith('/the-base/baz'));
+    });
+
+    test('imports absolute html plugins from config', () => {
+      sandbox.stub(element, '_createScriptTag');
+      element.config = {
+        plugin: {
+          js_resource_paths: [
+            'http://example.com/foo/bar',
+            'https://example.com/baz',
+          ],
+        },
+      };
+      assert.isTrue(element._createScriptTag.calledWith(
+          'http://example.com/foo/bar'));
+      assert.isTrue(element._createScriptTag.calledWith(
+          'https://example.com/baz'));
+    });
+
+    test('default theme is loaded with html plugins', () => {
+      element.config = {
+        default_theme: '/oof',
+        plugin: {
+          html_resource_paths: ['some'],
+        },
+      };
+      assert.equal(element.importHref.firstCall.args[0], '/oof');
+      assert.equal(element.importHref.firstCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isFalse(element.importHref.firstCall.args[3]);
+
+      assert.equal(element.importHref.secondCall.args[0], '/some');
+      assert.equal(element.importHref.secondCall.args[2],
+          Gerrit._pluginInstalled);
+      assert.isTrue(element.importHref.secondCall.args[3]);
     });
   });
 </script>

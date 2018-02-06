@@ -43,6 +43,7 @@
         type: String,
         value: DiffSides.RIGHT,
       },
+      /** @type {!HTMLElement|undefined} */
       diffRow: {
         type: Object,
         notify: true,
@@ -61,6 +62,8 @@
        * If set, the cursor will attempt to move to the line number (instead of
        * the first chunk) the next time the diff renders. It is set back to null
        * when used.
+       *
+       * @type (?number)
        */
       initialLineNumber: {
         type: Number,
@@ -75,6 +78,11 @@
       _scrollBehavior: {
         type: String,
         value: ScrollBehavior.KEEP_VISIBLE,
+      },
+
+      _focusOnMove: {
+        type: Boolean,
+        value: true,
       },
 
       _listeningForScroll: Boolean,
@@ -147,6 +155,11 @@
       this._fixSide();
     },
 
+    /**
+     * @param {number} number
+     * @param {string} side
+     * @param {string=} opt_path
+     */
     moveToLineNumber(number, side, opt_path) {
       const row = this._findRowByNumberAndFile(number, side, opt_path);
       if (row) {
@@ -157,7 +170,7 @@
 
     /**
      * Get the line number element targeted by the cursor row and side.
-     * @return {DOMElement}
+     * @return {?Element|undefined}
      */
     getTargetLineElement() {
       let lineElSelector = '.lineNum';
@@ -199,6 +212,7 @@
     _handleWindowScroll() {
       if (this._listeningForScroll) {
         this._scrollBehavior = ScrollBehavior.NEVER;
+        this._focusOnMove = false;
         this._listeningForScroll = false;
       }
     },
@@ -210,6 +224,7 @@
         this.reInitCursor();
       }
       this._scrollBehavior = ScrollBehavior.KEEP_VISIBLE;
+      this._focusOnMove = true;
       this._listeningForScroll = false;
     },
 
@@ -218,13 +233,14 @@
     },
 
     /**
-     * Get a short address for the location of the cursor. Such as '123' for
-     * line 123 of the revision, or 'b321' for line 321 of the base patch.
-     * Returns an empty string if an address is not available.
-     * @return {String}
+     * Get an object describing the location of the cursor. Such as
+     * {leftSide: false, number: 123} for line 123 of the revision, or
+     * {leftSide: true, number: 321} for line 321 of the base patch.
+     * Returns null if an address is not available.
+     * @return {?Object}
      */
     getAddress() {
-      if (!this.diffRow) { return ''; }
+      if (!this.diffRow) { return null; }
 
       // Get the line-number cell targeted by the cursor. If the mode is unified
       // then prefer the revision cell if available.
@@ -237,12 +253,15 @@
       } else {
         cell = this.diffRow.querySelector('.lineNum.' + this.side);
       }
-      if (!cell) { return ''; }
+      if (!cell) { return null; }
 
       const number = cell.getAttribute('data-value');
-      if (!number || number === 'FILE') { return ''; }
+      if (!number || number === 'FILE') { return null; }
 
-      return (cell.matches('.left') ? 'b' : '') + number;
+      return {
+        leftSide: cell.matches('.left'),
+        number: parseInt(number, 10),
+      };
     },
 
     _getViewMode() {

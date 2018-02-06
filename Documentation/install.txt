@@ -77,8 +77,8 @@ the path of the site directory to be created as an argument to the
 own user account on the host system:
 
 ----
-  sudo adduser gerrit2
-  sudo su gerrit2
+  sudo adduser gerrit
+  sudo su gerrit
 
   java -jar gerrit.war init -d /path/to/your/gerrit_application_directory
 ----
@@ -86,7 +86,7 @@ own user account on the host system:
 [NOTE]
 If you choose a location where your new user doesn't
 have any privileges, you may have to manually create the directory first and
-then give ownership of that location to the `'gerrit2'` user.
+then give ownership of that location to the `'gerrit'` user.
 
 If run from an interactive terminal, the init command will prompt through a
 series of configuration questions, including gathering information
@@ -104,8 +104,8 @@ When the init phase is complete, the daemon will be automatically started
 in the background and your web browser will open to the site:
 
 ----
-  Initialized /home/gerrit2/review_site
-  Executing /home/gerrit2/review_site/bin/gerrit.sh start
+  Initialized /home/gerrit/review_site
+  Executing /home/gerrit/review_site/bin/gerrit.sh start
   Starting Gerrit Code Review: OK
   Waiting for server to start ... OK
   Opening browser ...
@@ -175,8 +175,8 @@ link:install-j2ee.html[J2EE installation].
 [[installation_on_windows]]
 == Installation on Windows
 
-If new site is going to be initialized with Bouncy Castle cryptography,
-ssh-keygen command must be available during the init phase. If you have
+The `ssh-keygen` command must be available during the init phase to
+generate SSH host keys. If you have
 link:https://git-for-windows.github.io/[Git for Windows] installed,
 start Command Prompt and temporary add directory with ssh-keygen to the
 PATH environment variable just before running init command:

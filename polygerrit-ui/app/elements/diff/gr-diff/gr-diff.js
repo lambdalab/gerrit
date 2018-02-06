@@ -14,6 +14,10 @@
 (function() {
   'use strict';
 
+  const ERR_COMMENT_ON_EDIT = 'You cannot comment on an edit.';
+  const ERR_INVALID_LINE = 'Invalid line number: ';
+  const MSG_EMPTY_BLAME = 'No blame information for this diff.';
+
   const DiffViewMode = {
     SIDE_BY_SIDE: 'SIDE_BY_SIDE',
     UNIFIED: 'UNIFIED_DIFF',
@@ -48,6 +52,7 @@
         type: Boolean,
         value: false,
       },
+      /** @type {?} */
       patchRange: Object,
       path: String,
       prefs: {
@@ -58,6 +63,7 @@
         type: Object,
         observer: '_projectConfigChanged',
       },
+      projectName: String,
       displayLine: {
         type: Boolean,
         value: false,
@@ -67,6 +73,7 @@
         computed: '_computeIsImageDiff(_diff)',
         notify: true,
       },
+      commitRange: Object,
       filesWeblinks: {
         type: Object,
         value() { return {}; },
@@ -77,10 +84,7 @@
         reflectToAttribute: true,
       },
       noRenderOnPrefsChange: Boolean,
-      _loggedIn: {
-        type: Boolean,
-        value: false,
-      },
+      comments: Object,
       lineWrapping: {
         type: Boolean,
         value: false,
@@ -90,6 +94,20 @@
         type: String,
         value: DiffViewMode.SIDE_BY_SIDE,
         observer: '_viewModeObserver',
+      },
+
+      /**
+       * Special line number which should not be collapsed into a shared region.
+       * @type {{
+       *  number: number,
+       *  leftSide: {boolean}
+       * }|null}
+       */
+      lineOfInterest: Object,
+
+      _loggedIn: {
+        type: Boolean,
+        value: false,
       },
       _diff: Object,
       _diffHeaderItems: {
@@ -101,8 +119,9 @@
         type: String,
         value: '',
       },
-      _comments: Object,
+      /** @type {?Object} */
       _baseImage: Object,
+      /** @type {?Object} */
       _revisionImage: Object,
 
       /**
@@ -110,6 +129,8 @@
        * been bypassed. If the value is null, then the safety has not been
        * bypassed. If the value is a number, then that number represents the
        * context preference to use when rendering the bypassed diff.
+       *
+       * @type (number|null)
        */
       _safetyBypass: {
         type: Number,
@@ -117,7 +138,27 @@
       },
 
       _showWarning: Boolean,
+
+      /** @type {?Object} */
+      _blame: {
+        type: Object,
+        value: null,
+      },
+      isBlameLoaded: {
+        type: Boolean,
+        notify: true,
+        computed: '_computeIsBlameLoaded(_blame)',
+      },
+
+      _parentIndex: {
+        type: Number,
+        computed: '_computeParentIndex(patchRange.*)',
+      },
     },
+
+    behaviors: [
+      Gerrit.PatchSetBehavior,
+    ],
 
     listeners: {
       'thread-discard': '_handleThreadDiscard',
@@ -139,21 +180,19 @@
       }
     },
 
+    /** @return {!Promise} */
     reload() {
       this.$.diffBuilder.cancel();
+      this.clearBlame();
       this._safetyBypass = null;
       this._showWarning = false;
-      this._clearDiffContent();
+      this.clearDiffContent();
 
       const promises = [];
 
       promises.push(this._getDiff().then(diff => {
         this._diff = diff;
         return this._loadDiffAssets();
-      }));
-
-      promises.push(this._getDiffCommentsAndDrafts().then(comments => {
-        this._comments = comments;
       }));
 
       return Promise.all(promises).then(() => {
@@ -164,6 +203,7 @@
       });
     },
 
+    /** @return {!Array<!HTMLElement>} */
     getCursorStops() {
       if (this.hidden && this.noAutoRender) {
         return [];
@@ -172,27 +212,7 @@
       return Polymer.dom(this.root).querySelectorAll('.diff-row');
     },
 
-    addDraftAtLine(el) {
-      this._selectLine(el);
-      this._getLoggedIn().then(loggedIn => {
-        if (!loggedIn) {
-          this.fire('show-auth-required');
-          return;
-        }
-
-        const value = el.getAttribute('data-value');
-        if (value === GrDiffLine.FILE) {
-          this._addDraft(el);
-          return;
-        }
-        const lineNum = parseInt(value, 10);
-        if (isNaN(lineNum)) {
-          throw Error('Invalid line number: ' + value);
-        }
-        this._addDraft(el, lineNum);
-      });
-    },
-
+    /** @return {boolean} */
     isRangeSelected() {
       return this.$.highlights.isRangeSelected();
     },
@@ -201,15 +221,51 @@
       this.toggleClass('no-left');
     },
 
+    /**
+     * Load and display blame information for the base of the diff.
+     * @return {Promise} A promise that resolves when blame finishes rendering.
+     */
+    loadBlame() {
+      return this.$.restAPI.getBlame(this.changeNum, this.patchRange.patchNum,
+          this.path, true)
+          .then(blame => {
+            if (!blame.length) {
+              this.fire('show-alert', {message: MSG_EMPTY_BLAME});
+              return Promise.reject(MSG_EMPTY_BLAME);
+            }
+
+            this._blame = blame;
+
+            this.$.diffBuilder.setBlame(blame);
+            this.classList.add('showBlame');
+          });
+    },
+
+    _computeIsBlameLoaded(blame) {
+      return !!blame;
+    },
+
+    /**
+     * Unload blame information for the diff.
+     */
+    clearBlame() {
+      this._blame = null;
+      this.$.diffBuilder.setBlame(null);
+      this.classList.remove('showBlame');
+    },
+
+    /** @return {boolean}} */
     _canRender() {
-      return this.changeNum && this.patchRange && this.path &&
+      return !!this.changeNum && !!this.patchRange && !!this.path &&
           !this.noAutoRender;
     },
 
+    /** @return {!Array<!HTMLElement>} */
     _getCommentThreads() {
       return Polymer.dom(this.root).querySelectorAll('gr-diff-comment-thread');
     },
 
+    /** @return {string} */
     _computeContainerClass(loggedIn, viewMode, displayLine) {
       const classes = ['diffContainer'];
       switch (viewMode) {
@@ -257,34 +313,71 @@
       });
     },
 
-    _handleCreateComment(e) {
-      const range = e.detail.range;
-      const diffSide = e.detail.side;
-      const line = range.endLine;
-      const lineEl = this.$.diffBuilder.getLineElByNumber(line, diffSide);
-      const contentText = this.$.diffBuilder.getContentByLineEl(lineEl);
-      const contentEl = contentText.parentElement;
-      const patchNum = this._getPatchNumByLineAndContent(lineEl, contentEl);
-      const isOnParent =
-          this._getIsParentCommentByLineAndContent(lineEl, contentEl);
-      const threadEl = this._getOrCreateThreadAtLineRange(contentEl, patchNum,
-          diffSide, isOnParent, range);
+    addDraftAtLine(el) {
+      this._selectLine(el);
+      this._isValidElForComment(el).then(valid => {
+        if (!valid) { return; }
 
-      threadEl.addOrEditDraft(line, range);
+        const value = el.getAttribute('data-value');
+        let lineNum;
+        if (value !== GrDiffLine.FILE) {
+          lineNum = parseInt(value, 10);
+          if (isNaN(lineNum)) {
+            this.fire('show-alert', {message: ERR_INVALID_LINE + value});
+            return;
+          }
+        }
+        this._createComment(el, lineNum);
+      });
     },
 
-    _addDraft(lineEl, opt_lineNum) {
+    _handleCreateComment(e) {
+      const range = e.detail.range;
+      const side = e.detail.side;
+      const lineNum = range.endLine;
+      const lineEl = this.$.diffBuilder.getLineElByNumber(lineNum, side);
+      this._isValidElForComment(lineEl).then(valid => {
+        if (!valid) { return; }
+
+        this._createComment(lineEl, lineNum, side, range);
+      });
+    },
+
+    _isValidElForComment(el) {
+      return this._getLoggedIn().then(loggedIn => {
+        if (!loggedIn) {
+          this.fire('show-auth-required');
+          return false;
+        }
+        const patchNum = el.classList.contains(DiffSide.LEFT) ?
+            this.patchRange.basePatchNum :
+            this.patchRange.patchNum;
+
+        if (this.patchNumEquals(patchNum, this.EDIT_NAME)) {
+          this.fire('show-alert', {message: ERR_COMMENT_ON_EDIT});
+          return false;
+        }
+        return true;
+      });
+    },
+
+    /**
+     * @param {!Object} lineEl
+     * @param {number=} opt_lineNum
+     * @param {string=} opt_side
+     * @param {!Object=} opt_range
+     */
+    _createComment(lineEl, opt_lineNum, opt_side, opt_range) {
       const contentText = this.$.diffBuilder.getContentByLineEl(lineEl);
       const contentEl = contentText.parentElement;
-      const patchNum = this._getPatchNumByLineAndContent(lineEl, contentEl);
-      const commentSide =
+      const side = opt_side ||
           this._getCommentSideByLineAndContent(lineEl, contentEl);
+      const patchNum = this._getPatchNumByLineAndContent(lineEl, contentEl);
       const isOnParent =
-          this._getIsParentCommentByLineAndContent(lineEl, contentEl);
+        this._getIsParentCommentByLineAndContent(lineEl, contentEl);
       const threadEl = this._getOrCreateThreadAtLineRange(contentEl, patchNum,
-          commentSide, isOnParent);
-
-      threadEl.addOrEditDraft(opt_lineNum);
+          side, isOnParent, opt_range);
+      threadEl.addOrEditDraft(opt_lineNum, opt_range);
     },
 
     _getThreadForRange(threadGroupEl, rangeToCheck) {
@@ -295,22 +388,36 @@
       return contentEl.querySelector('gr-diff-comment-thread-group');
     },
 
+    /**
+     * @param {string} commentSide
+     * @param {!Object=} opt_range
+     */
+    _getRangeString(commentSide, opt_range) {
+      return opt_range ?
+        'range-' +
+        opt_range.startLine + '-' +
+        opt_range.startChar + '-' +
+        opt_range.endLine + '-' +
+        opt_range.endChar + '-' +
+        commentSide : 'line-' + commentSide;
+    },
+
+    /**
+     * @param {!Object} contentEl
+     * @param {number} patchNum
+     * @param {string} commentSide
+     * @param {boolean} isOnParent
+     * @param {!Object=} opt_range
+     */
     _getOrCreateThreadAtLineRange(contentEl, patchNum, commentSide,
-        isOnParent, range) {
-      const rangeToCheck = range ?
-          'range-' +
-          range.startLine + '-' +
-          range.startChar + '-' +
-          range.endLine + '-' +
-          range.endChar + '-' +
-          commentSide : 'line-' + commentSide;
+        isOnParent, opt_range) {
+      const rangeToCheck = this._getRangeString(commentSide, opt_range);
 
       // Check if thread group exists.
       let threadGroupEl = this._getThreadGroupForLine(contentEl);
       if (!threadGroupEl) {
         threadGroupEl = this.$.diffBuilder.createCommentThreadGroup(
-            this.changeNum, patchNum, this.path, isOnParent,
-            this.projectConfig);
+            this.changeNum, patchNum, this.path, isOnParent);
         contentEl.appendChild(threadGroupEl);
       }
 
@@ -325,26 +432,44 @@
       return threadEl;
     },
 
+    /**
+     * The value to be used for the patch number of new comments created at the
+     * given line and content elements.
+     *
+     * In two cases of creating a comment on the left side, the patch number to
+     * be used should actually be right side of the patch range:
+     * - When the patch range is against the parent comment of a normal change.
+     *   Such comments declare themmselves to be on the left using side=PARENT.
+     * - If the patch range is against the indexed parent of a merge change.
+     *   Such comments declare themselves to be on the given parent by
+     *   specifying the parent index via parent=i.
+     *
+     * @return {number}
+     */
     _getPatchNumByLineAndContent(lineEl, contentEl) {
       let patchNum = this.patchRange.patchNum;
+
       if ((lineEl.classList.contains(DiffSide.LEFT) ||
           contentEl.classList.contains('remove')) &&
-          this.patchRange.basePatchNum !== 'PARENT') {
+          this.patchRange.basePatchNum !== 'PARENT' &&
+          !this.isMergeParent(this.patchRange.basePatchNum)) {
         patchNum = this.patchRange.basePatchNum;
       }
       return patchNum;
     },
 
+    /** @return {boolean} */
     _getIsParentCommentByLineAndContent(lineEl, contentEl) {
-      let isOnParent = false;
       if ((lineEl.classList.contains(DiffSide.LEFT) ||
           contentEl.classList.contains('remove')) &&
-          this.patchRange.basePatchNum === 'PARENT') {
-        isOnParent = true;
+          (this.patchRange.basePatchNum === 'PARENT' ||
+          this.isMergeParent(this.patchRange.basePatchNum))) {
+        return true;
       }
-      return isOnParent;
+      return false;
     },
 
+    /** @return {string} */
     _getCommentSideByLineAndContent(lineEl, contentEl) {
       let side = 'right';
       if (lineEl.classList.contains(DiffSide.LEFT) ||
@@ -361,7 +486,7 @@
 
     _handleCommentDiscard(e) {
       const comment = e.detail.comment;
-      this._removeComment(comment, e.detail.patchNum);
+      this._removeComment(comment);
     },
 
     _removeComment(comment) {
@@ -373,9 +498,15 @@
       const comment = e.detail.comment;
       const side = e.detail.comment.__commentSide;
       const idx = this._findDraftIndex(comment, side);
-      this.set(['_comments', side, idx], comment);
+      this.set(['comments', side, idx], comment);
     },
 
+    /**
+     * Closure annotation for Polymer.prototype.push is off. Submitted PR:
+     * https://github.com/Polymer/polymer/pull/4776
+     * but for not supressing annotations.
+     *
+     * @suppress {checkTypes} */
     _handleCommentUpdate(e) {
       const comment = e.detail.comment;
       const side = e.detail.comment.__commentSide;
@@ -384,9 +515,9 @@
         idx = this._findDraftIndex(comment, side);
       }
       if (idx !== -1) { // Update draft or comment.
-        this.set(['_comments', side, idx], comment);
+        this.set(['comments', side, idx], comment);
       } else { // Create new draft.
-        this.push(['_comments', side], comment);
+        this.push(['comments', side], comment);
       }
     },
 
@@ -396,24 +527,26 @@
         idx = this._findDraftIndex(comment, side);
       }
       if (idx !== -1) {
-        this.splice('_comments.' + side, idx, 1);
+        this.splice('comments.' + side, idx, 1);
       }
     },
 
+    /** @return {number} */
     _findCommentIndex(comment, side) {
-      if (!comment.id || !this._comments[side]) {
+      if (!comment.id || !this.comments[side]) {
         return -1;
       }
-      return this._comments[side].findIndex(item => {
+      return this.comments[side].findIndex(item => {
         return item.id === comment.id;
       });
     },
 
+    /** @return {number} */
     _findDraftIndex(comment, side) {
-      if (!comment.__draftID || !this._comments[side]) {
+      if (!comment.__draftID || !this.comments[side]) {
         return -1;
       }
-      return this._comments[side].findIndex(item => {
+      return this.comments[side].findIndex(item => {
         return item.__draftID === comment.__draftID;
       });
     },
@@ -444,23 +577,28 @@
 
     _prefsChanged(prefs) {
       if (!prefs) { return; }
+
+      this.clearBlame();
+
+      const stylesToUpdate = {};
+
       if (prefs.line_wrapping) {
         this._diffTableClass = 'full-width';
         if (this.viewMode === 'SIDE_BY_SIDE') {
-          this.customStyle['--content-width'] = 'none';
+          stylesToUpdate['--content-width'] = 'none';
         }
       } else {
         this._diffTableClass = '';
-        this.customStyle['--content-width'] = prefs.line_length + 'ch';
+        stylesToUpdate['--content-width'] = prefs.line_length + 'ch';
       }
 
       if (prefs.font_size) {
-        this.customStyle['--font-size'] = prefs.font_size + 'px';
+        stylesToUpdate['--font-size'] = prefs.font_size + 'px';
       }
 
-      this.updateStyles();
+      this.updateStyles(stylesToUpdate);
 
-      if (this._diff && this._comments && !this.noRenderOnPrefsChange) {
+      if (this._diff && this.comments && !this.noRenderOnPrefsChange) {
         this._renderDiffTable();
       }
     },
@@ -474,7 +612,7 @@
       }
 
       this._showWarning = false;
-      return this.$.diffBuilder.render(this._comments, this._getBypassPrefs());
+      return this.$.diffBuilder.render(this.comments, this._getBypassPrefs());
     },
 
     /**
@@ -487,7 +625,7 @@
       return this.prefs;
     },
 
-    _clearDiffContent() {
+    clearDiffContent() {
       this.$.diffTable.innerHTML = null;
     },
 
@@ -501,6 +639,7 @@
       this.fire('page-error', {response});
     },
 
+    /** @return {!Promise<!Object>} */
     _getDiff() {
       return this.$.restAPI.getDiff(
           this.changeNum,
@@ -508,85 +647,28 @@
           this.patchRange.patchNum,
           this.path,
           this._handleGetDiffError.bind(this)).then(diff => {
+            if (!this.commitRange) {
+              this.filesWeblinks = {};
+              return diff;
+            }
             this.filesWeblinks = {
-              meta_a: diff && diff.meta_a && diff.meta_a.web_links,
-              meta_b: diff && diff.meta_b && diff.meta_b.web_links,
+              meta_a: Gerrit.Nav.getFileWebLinks(
+                  this.projectName, this.commitRange.commit, this.path,
+                  {weblinks: diff && diff.meta_a && diff.meta_a.web_links}),
+              meta_b: Gerrit.Nav.getFileWebLinks(
+                  this.projectName, this.commitRange.baseCommit, this.path,
+                  {weblinks: diff && diff.meta_b && diff.meta_b.web_links}),
             };
             return diff;
           });
     },
 
-    _getDiffComments() {
-      return this.$.restAPI.getDiffComments(
-          this.changeNum,
-          this.patchRange.basePatchNum,
-          this.patchRange.patchNum,
-          this.path);
-    },
-
-    _getDiffDrafts() {
-      return this._getLoggedIn().then(loggedIn => {
-        if (!loggedIn) {
-          return Promise.resolve({baseComments: [], comments: []});
-        }
-        return this.$.restAPI.getDiffDrafts(
-            this.changeNum,
-            this.patchRange.basePatchNum,
-            this.patchRange.patchNum,
-            this.path);
-      });
-    },
-
-    _getDiffRobotComments() {
-      return this.$.restAPI.getDiffRobotComments(
-          this.changeNum,
-          this.patchRange.basePatchNum,
-          this.patchRange.patchNum,
-          this.path);
-    },
-
-    _getDiffCommentsAndDrafts() {
-      const promises = [];
-      promises.push(this._getDiffComments());
-      promises.push(this._getDiffDrafts());
-      promises.push(this._getDiffRobotComments());
-      return Promise.all(promises).then(results => {
-        return Promise.resolve({
-          comments: results[0],
-          drafts: results[1],
-          robotComments: results[2],
-        });
-      }).then(this._normalizeDiffCommentsAndDrafts.bind(this));
-    },
-
-    _normalizeDiffCommentsAndDrafts(results) {
-      function markAsDraft(d) {
-        d.__draft = true;
-        return d;
-      }
-      const baseDrafts = results.drafts.baseComments.map(markAsDraft);
-      const drafts = results.drafts.comments.map(markAsDraft);
-
-      const baseRobotComments = results.robotComments.baseComments;
-      const robotComments = results.robotComments.comments;
-      return Promise.resolve({
-        meta: {
-          path: this.path,
-          changeNum: this.changeNum,
-          patchRange: this.patchRange,
-          projectConfig: this.projectConfig,
-        },
-        left: results.comments.baseComments.concat(baseDrafts)
-            .concat(baseRobotComments),
-        right: results.comments.comments.concat(drafts)
-            .concat(robotComments),
-      });
-    },
-
+    /** @return {!Promise} */
     _getLoggedIn() {
       return this.$.restAPI.getLoggedIn();
     },
 
+    /** @return {boolean} */
     _computeIsImageDiff() {
       if (!this._diff) { return false; }
 
@@ -595,9 +677,10 @@
       const isB = this._diff.meta_b &&
           this._diff.meta_b.content_type.startsWith('image/');
 
-      return this._diff.binary && (isA || isB);
+      return !!(this._diff.binary && (isA || isB));
     },
 
+    /** @return {!Promise} */
     _loadDiffAssets() {
       if (this.isImageDiff) {
         return this._getImages().then(images => {
@@ -611,6 +694,7 @@
       }
     },
 
+    /** @return {!Promise} */
     _getImages() {
       return this.$.restAPI.getImagesForDiff(this.changeNum, this._diff,
           this.patchRange);
@@ -623,6 +707,7 @@
       }
     },
 
+    /** @return {!Array} */
     _computeDiffHeaderItems(diffInfoRecord) {
       const diffInfo = diffInfoRecord.base;
       if (!diffInfo || !diffInfo.diff_header || diffInfo.binary) { return []; }
@@ -634,6 +719,7 @@
       });
     },
 
+    /** @return {boolean} */
     _computeDiffHeaderHidden(items) {
       return items.length === 0;
     },
@@ -642,7 +728,7 @@
      * The number of lines in the diff. For delta chunks that are different
      * sizes on the left and the right, the longer side is used.
      * @param {!Object} diff
-     * @return {Number}
+     * @return {number}
      */
     _diffLength(diff) {
       return diff.content.reduce((sum, sec) => {
@@ -667,8 +753,19 @@
       this._renderDiffTable();
     },
 
+    /** @return {string} */
     _computeWarningClass(showWarning) {
       return showWarning ? 'warn' : '';
+    },
+
+    /**
+     * @return {number|null}
+     */
+    _computeParentIndex(patchRangeRecord) {
+      if (!this.isMergeParent(patchRangeRecord.base.basePatchNum)) {
+        return null;
+      }
+      return this.getParentIndex(patchRangeRecord.base.basePatchNum);
     },
   });
 })();

@@ -19,24 +19,30 @@ import com.google.gerrit.client.changes.CommentInfo;
 import com.google.gerrit.client.diff.CommentRange;
 import com.google.gerrit.client.rpc.GerritCallback;
 import com.google.gerrit.client.rpc.RestApi;
+import com.google.gerrit.common.Nullable;
+import com.google.gerrit.common.PageLinks;
 import com.google.gerrit.extensions.client.Side;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.reviewdb.client.PatchSet;
+import com.google.gerrit.reviewdb.client.Project;
 import com.google.gwt.storage.client.Storage;
 import com.google.gwt.user.client.Cookies;
 import java.util.ArrayList;
 import java.util.Collection;
 
 public class LocalComments {
+  @Nullable private final Project.NameKey project;
   private final Change.Id changeId;
   private final PatchSet.Id psId;
   private final StorageBackend storage;
 
   private static class InlineComment {
+    @Nullable final Project.NameKey project;
     final PatchSet.Id psId;
     final CommentInfo commentInfo;
 
-    InlineComment(PatchSet.Id psId, CommentInfo commentInfo) {
+    InlineComment(@Nullable Project.NameKey project, PatchSet.Id psId, CommentInfo commentInfo) {
+      this.project = project;
       this.psId = psId;
       this.commentInfo = commentInfo;
     }
@@ -87,13 +93,15 @@ public class LocalComments {
     }
   }
 
-  public LocalComments(Change.Id changeId) {
+  public LocalComments(@Nullable Project.NameKey project, Change.Id changeId) {
+    this.project = project;
     this.changeId = changeId;
     this.psId = null;
     this.storage = new StorageBackend();
   }
 
-  public LocalComments(PatchSet.Id psId) {
+  public LocalComments(@Nullable Project.NameKey project, PatchSet.Id psId) {
+    this.project = project;
     this.changeId = psId.getParentKey();
     this.psId = psId;
     this.storage = new StorageBackend();
@@ -120,7 +128,7 @@ public class LocalComments {
   }
 
   private String getReplyCommentName() {
-    return "savedReplyComment-" + changeId.toString();
+    return "savedReplyComment~" + PageLinks.toChangeId(project, changeId);
   }
 
   public static void saveInlineComments() {
@@ -130,6 +138,7 @@ public class LocalComments {
         InlineComment input = getInlineComment(cookie);
         if (input.commentInfo.id() == null) {
           CommentApi.createDraft(
+              Project.NameKey.asStringOrNull(input.project),
               input.psId,
               input.commentInfo,
               new GerritCallback<CommentInfo>() {
@@ -140,6 +149,7 @@ public class LocalComments {
               });
         } else {
           CommentApi.updateDraft(
+              Project.NameKey.asStringOrNull(input.project),
               input.psId,
               input.commentInfo.id(),
               input.commentInfo,
@@ -184,9 +194,9 @@ public class LocalComments {
   }
 
   private static boolean isInlineComment(String key) {
-    return key.startsWith("patchCommentEdit-")
-        || key.startsWith("patchReply-")
-        || key.startsWith("patchComment-");
+    return key.startsWith("patchCommentEdit~")
+        || key.startsWith("patchReply~")
+        || key.startsWith("patchComment~");
   }
 
   private static InlineComment getInlineComment(String key) {
@@ -196,13 +206,13 @@ public class LocalComments {
     CommentRange range;
     StorageBackend storage = new StorageBackend();
 
-    String[] elements = key.split("-");
+    String[] elements = key.split("~");
     int offset = 1;
-    if (key.startsWith("patchReply-") || key.startsWith("patchCommentEdit-")) {
+    if (key.startsWith("patchReply~") || key.startsWith("patchCommentEdit~")) {
       offset = 2;
     }
-    Change.Id changeId = new Change.Id(Integer.parseInt(elements[offset + 0]));
-    PatchSet.Id psId = new PatchSet.Id(changeId, Integer.parseInt(elements[offset + 1]));
+    ProjectChangeId id = ProjectChangeId.create(elements[offset + 0]);
+    PatchSet.Id psId = new PatchSet.Id(id.getChangeId(), Integer.parseInt(elements[offset + 1]));
     path = atob(elements[offset + 2]);
     side = (Side.PARENT.toString().equals(elements[offset + 3])) ? Side.PARENT : Side.REVISION;
     range = null;
@@ -222,12 +232,12 @@ public class LocalComments {
     }
     CommentInfo info = CommentInfo.create(path, side, line, range, false);
     info.message(storage.getItem(key));
-    if (key.startsWith("patchReply-")) {
+    if (key.startsWith("patchReply~")) {
       info.inReplyTo(elements[1]);
-    } else if (key.startsWith("patchCommentEdit-")) {
+    } else if (key.startsWith("patchCommentEdit~")) {
       info.id(elements[1]);
     }
-    InlineComment inlineComment = new InlineComment(psId, info);
+    InlineComment inlineComment = new InlineComment(id.getProject(), psId, info);
     return inlineComment;
   }
 
@@ -235,21 +245,22 @@ public class LocalComments {
     if (psId == null) {
       return null;
     }
-    String result = "patchComment-";
+    String result = "patchComment~";
     if (comment.id() != null) {
-      result = "patchCommentEdit-" + comment.id() + "-";
+      result = "patchCommentEdit~" + comment.id() + "~";
     } else if (comment.inReplyTo() != null) {
-      result = "patchReply-" + comment.inReplyTo() + "-";
+      result = "patchReply~" + comment.inReplyTo() + "~";
     }
-    result +=
-        changeId + "-" + psId.getId() + "-" + btoa(comment.path()) + "-" + comment.side() + "-";
+
+    result += PageLinks.toChangeId(project, changeId);
+    result += "~" + psId.getId() + "~" + btoa(comment.path()) + "~" + comment.side() + "~";
     if (comment.hasRange()) {
       result +=
           "R"
               + comment.range().startLine()
               + ","
               + comment.range().startCharacter()
-              + "-"
+              + "~"
               + comment.range().endLine()
               + ","
               + comment.range().endCharacter();

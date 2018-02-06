@@ -43,6 +43,8 @@ public interface ChangeConstants extends Constants {
 
   String unknownDashboardTitle();
 
+  String workInProgress();
+
   String incomingReviews();
 
   String outgoingReviews();
@@ -144,6 +146,14 @@ public interface ChangeConstants extends Constants {
   String cherryPickCommitMessage();
 
   String cherryPickTitle();
+
+  String moveChangeSend();
+
+  String headingMoveBranch();
+
+  String moveChangeMessage();
+
+  String moveTitle();
 
   String buttonRebaseChangeSend();
 

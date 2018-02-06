@@ -134,9 +134,9 @@ public class ChangeInfo extends JavaScriptObject {
 
   private native String submittedRaw() /*-{ return this.submitted; }-*/;
 
-  public final native boolean starred() /*-{ return this.starred ? true : false; }-*/;
+  public final native AccountInfo submitter() /*-{ return this.submitter; }-*/;
 
-  public final native boolean muted() /*-{ return this.muted ? true : false; }-*/;
+  public final native boolean starred() /*-{ return this.starred ? true : false; }-*/;
 
   public final native boolean reviewed() /*-{ return this.reviewed ? true : false; }-*/;
 
@@ -416,8 +416,6 @@ public class ChangeInfo extends JavaScriptObject {
     public final native int _number() /*-{ return this._number; }-*/;
 
     public final native String name() /*-{ return this.name; }-*/;
-
-    public final native boolean draft() /*-{ return this.draft || false; }-*/;
 
     public final native AccountInfo uploader() /*-{ return this.uploader; }-*/;
 

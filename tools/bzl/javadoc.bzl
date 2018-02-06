@@ -17,8 +17,8 @@
 def _impl(ctx):
   zip_output = ctx.outputs.zip
 
-  transitive_jar_set = set()
-  source_jars = set()
+  transitive_jar_set = depset()
+  source_jars = depset()
   for l in ctx.attr.libs:
     source_jars += l.java.source_jars
     transitive_jar_set += l.java.transitive_deps
@@ -52,7 +52,7 @@ def _impl(ctx):
     "find %s -exec touch -t 198001010000 '{}' ';'" % dir,
     "(cd %s && zip -qr ../%s *)" % (dir, ctx.outputs.zip.basename),
   ]
-  ctx.action(
+  ctx.actions.run_shell(
       inputs = list(transitive_jar_set) + list(source_jars) + ctx.files._jdk,
       outputs = [zip_output],
       command = " && ".join(cmd))

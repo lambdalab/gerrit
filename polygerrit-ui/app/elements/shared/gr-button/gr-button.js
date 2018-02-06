@@ -18,14 +18,39 @@
     is: 'gr-button',
 
     properties: {
+      tooltip: String,
+      downArrow: {
+        type: Boolean,
+        reflectToAttribute: true,
+      },
       link: {
         type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+      },
+      raised: {
+        type: Boolean,
+        reflectToAttribute: true,
+        computed: '_isRaised(link)',
+      },
+      loading: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+      },
+      tertiary: {
+        type: Boolean,
+        value: false,
         reflectToAttribute: true,
       },
       disabled: {
         type: Boolean,
         observer: '_disabledChanged',
         reflectToAttribute: true,
+      },
+      noUppercase: {
+        type: Boolean,
+        value: false,
       },
       _enabledTabindex: {
         type: String,
@@ -36,7 +61,12 @@
     listeners: {
       tap: '_handleAction',
       click: '_handleAction',
+      keydown: '_handleKeydown',
     },
+
+    observers: [
+      '_computeDisabled(disabled, loading)',
+    ],
 
     behaviors: [
       Gerrit.KeyboardShortcutBehavior,
@@ -48,8 +78,8 @@
       tabindex: '0',
     },
 
-    keyBindings: {
-      'space enter': '_handleCommitKey',
+    _isRaised(isLink) {
+      return !isLink;
     },
 
     _handleAction(e) {
@@ -64,11 +94,22 @@
         this._enabledTabindex = this.getAttribute('tabindex');
       }
       this.setAttribute('tabindex', disabled ? '-1' : this._enabledTabindex);
+      this.updateStyles();
     },
 
-    _handleCommitKey(e) {
-      e.preventDefault();
-      this.click();
+    _computeDisabled(disabled, loading) {
+      return disabled || loading;
+    },
+
+    _handleKeydown(e) {
+      if (this.modifierPressed(e)) { return; }
+      e = this.getKeyboardEvent(e);
+      // Handle `enter`, `space`.
+      if (e.keyCode === 13 || e.keyCode === 32) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.click();
+      }
     },
   });
 })();

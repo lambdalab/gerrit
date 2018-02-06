@@ -33,8 +33,10 @@ import bowerutil
 
 # list of licenses for packages that don't specify one in their bower.json file.
 package_licenses = {
+  "codemirror-minified": "codemirror-minified",
   "es6-promise": "es6-promise",
   "fetch": "fetch",
+  "font-roboto": "polymer",
   "iron-a11y-announcer": "polymer",
   "iron-a11y-keys-behavior": "polymer",
   "iron-autogrow-textarea": "polymer",
@@ -43,7 +45,10 @@ package_licenses = {
   "iron-fit-behavior": "polymer",
   "iron-flex-layout": "polymer",
   "iron-form-element-behavior": "polymer",
+  "iron-icon": "polymer",
+  "iron-iconset-svg": "polymer",
   "iron-input": "polymer",
+  "iron-menu-behavior": "polymer",
   "iron-meta": "polymer",
   "iron-overlay-behavior": "polymer",
   "iron-resizable-behavior": "polymer",
@@ -52,11 +57,23 @@ package_licenses = {
   "moment": "moment",
   "neon-animation": "polymer",
   "page": "page.js",
+  "paper-button": "polymer",
+  "paper-input": "polymer",
+  "paper-item": "polymer",
+  "paper-listbox": "polymer",
+  "paper-toggle-button": "polymer",
+  "paper-styles": "polymer",
   "polymer": "polymer",
   "polymer-resin": "polymer",
   "promise-polyfill": "promise-polyfill",
   "web-animations-js": "Apache2.0",
   "webcomponentsjs": "polymer",
+  "paper-material": "polymer",
+  "paper-styles": "polymer",
+  "paper-behaviors": "polymer",
+  "paper-ripple": "polymer",
+  "iron-checked-element-behavior": "polymer",
+  "font-roboto": "polymer",
 }
 
 
@@ -77,11 +94,10 @@ def build_bower_json(version_targets, seeds):
 
   seeds = set(seeds)
   for v in version_targets:
-    try:
-      fn = os.path.join("bazel-out/local-fastbuild/bin", v.lstrip("/").replace(":", "/"))
-    except:
-      fn = os.path.join("bazel-out/darwin_x86_64-fastbuild/bin", v.lstrip("/").replace(":", "/"))
-    with open(fn) as f:
+    path = os.path.join("bazel-out/*-fastbuild/bin", v.lstrip("/").replace(":", "/"))
+    fs = glob.glob(path)
+    assert len(fs) == 1, '%s: file not found or multiple files found: %s' % (path, fs)
+    with open(fs[0]) as f:
       j = json.load(f)
       if "" in j:
         # drop dummy entries.
@@ -216,15 +232,7 @@ def interpret_bower_json(seeds, ws_out, build_out):
     license = package_licenses.get(pkg_name, "DO_NOT_DISTRIBUTE")
 
     pkg["bazel-license"] = license
-
-    # TODO(hanwen): bower packages can also have 'fully qualified'
-    # names, ("PolymerElements/iron-ajax") as well as short names
-    # ("iron-ajax").  It is possible for bower.json files to refer to
-    # long names as their dependencies. If any package does this, we
-    # will have to either 1) strip off the prefix (typically github
-    # user?), or 2) build a map of short name <=> fully qualified
-    # name. For now, we just ignore the problem.
-    pkg["normalized-name"] = pkg["name"]
+    pkg["normalized-name"] = pkg["_originalSource"]
     data.append(pkg)
 
   dump_workspace(data, seeds, ws_out)

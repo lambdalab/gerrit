@@ -14,8 +14,11 @@
 (function() {
   'use strict';
 
+  const ERR_BRANCH_EMPTY = 'The destination branch can’t be empty.';
+  const ERR_COMMIT_EMPTY = 'The commit message can’t be empty.';
+  const ERR_REVISION_ACTIONS = 'Couldn’t load revision actions.';
   /**
-   * @enum {number}
+   * @enum {string}
    */
   const LabelStatus = {
     /**
@@ -41,28 +44,33 @@
      * project owner or site administrator.
      */
     IMPOSSIBLE: 'IMPOSSIBLE',
+    OPTIONAL: 'OPTIONAL',
   };
 
   // TODO(davido): Add the rest of the change actions.
   const ChangeActions = {
     ABANDON: 'abandon',
     DELETE: '/',
+    DELETE_EDIT: 'deleteEdit',
+    DONE_EDIT: 'doneEdit',
+    EDIT: 'edit',
     IGNORE: 'ignore',
-    MUTE: 'mute',
+    MOVE: 'move',
     PRIVATE: 'private',
     PRIVATE_DELETE: 'private.delete',
+    PUBLISH_EDIT: 'publishEdit',
+    REBASE_EDIT: 'rebaseEdit',
     RESTORE: 'restore',
     REVERT: 'revert',
+    REVIEWED: 'reviewed',
     UNIGNORE: 'unignore',
-    UNMUTE: 'unmute',
+    UNREVIEWED: 'unreviewed',
     WIP: 'wip',
   };
 
   // TODO(andybons): Add the rest of the revision actions.
   const RevisionActions = {
     CHERRYPICK: 'cherrypick',
-    DELETE: '/',
-    PUBLISH: 'publish',
     REBASE: 'rebase',
     SUBMIT: 'submit',
     DOWNLOAD: 'download',
@@ -70,9 +78,9 @@
 
   const ActionLoadingLabels = {
     abandon: 'Abandoning...',
-    cherrypick: 'Cherry-Picking...',
+    cherrypick: 'Cherry-picking...',
     delete: 'Deleting...',
-    publish: 'Publishing...',
+    move: 'Moving..',
     rebase: 'Rebasing...',
     restore: 'Restoring...',
     revert: 'Reverting...',
@@ -91,7 +99,7 @@
     __type: 'change',
     enabled: true,
     key: 'review',
-    label: 'Quick Approve',
+    label: 'Quick approve',
     method: 'POST',
   };
 
@@ -111,6 +119,57 @@
     __primary: false,
     __type: 'revision',
   };
+
+  const REBASE_EDIT = {
+    enabled: true,
+    label: 'Rebase edit',
+    title: 'Rebase change edit',
+    __key: 'rebaseEdit',
+    __primary: false,
+    __type: 'change',
+    method: 'POST',
+  };
+
+  const PUBLISH_EDIT = {
+    enabled: true,
+    label: 'Publish edit',
+    title: 'Publish change edit',
+    __key: 'publishEdit',
+    __primary: false,
+    __type: 'change',
+    method: 'POST',
+  };
+
+  const DELETE_EDIT = {
+    enabled: true,
+    label: 'Delete edit',
+    title: 'Delete change edit',
+    __key: 'deleteEdit',
+    __primary: false,
+    __type: 'change',
+    method: 'DELETE',
+  };
+
+  const EDIT = {
+    enabled: true,
+    label: 'Edit',
+    title: 'Edit this change',
+    __key: 'edit',
+    __primary: false,
+    __type: 'change',
+  };
+
+  const DONE_EDIT = {
+    enabled: true,
+    label: 'Done Editing',
+    title: 'Stop editing this change',
+    __key: 'doneEdit',
+    __primary: false,
+    __type: 'change',
+  };
+
+  const AWAIT_CHANGE_ATTEMPTS = 5;
+  const AWAIT_CHANGE_TIMEOUT_MS = 1000;
 
   Polymer({
     is: 'gr-change-actions',
@@ -134,6 +193,7 @@
      */
 
     properties: {
+      /** @type {{ _number: number, branch: string, project: string }} */
       change: Object,
       actions: {
         type: Object,
@@ -143,7 +203,6 @@
         type: Array,
         value() {
           return [
-            RevisionActions.PUBLISH,
             RevisionActions.SUBMIT,
           ];
         },
@@ -159,11 +218,12 @@
         type: Boolean,
         observer: '_computeChainState',
       },
-      patchNum: String,
+      latestPatchNum: String,
       commitMessage: {
         type: String,
         value: '',
       },
+      /** @type {?} */
       revisionActions: {
         type: Object,
         value() { return {}; },
@@ -175,7 +235,7 @@
       },
       _actionLoadingMessage: {
         type: String,
-        value: null,
+        value: '',
       },
       _allActionValues: {
         type: Array,
@@ -187,7 +247,10 @@
         type: Array,
         computed: '_computeTopLevelActions(_allActionValues.*, ' +
             '_hiddenActions.*, _overflowActions.*)',
+        observer: '_filterPrimaryActions',
       },
+      _topLevelPrimaryActions: Array,
+      _topLevelSecondaryActions: Array,
       _menuActions: {
         type: Array,
         computed: '_computeMenuActions(_allActionValues.*, _hiddenActions.*, ' +
@@ -207,11 +270,11 @@
             },
             {
               type: ActionType.REVISION,
-              key: RevisionActions.DELETE,
+              key: RevisionActions.CHERRYPICK,
             },
             {
-              type: ActionType.REVISION,
-              key: RevisionActions.CHERRYPICK,
+              type: ActionType.CHANGE,
+              key: ChangeActions.MOVE,
             },
             {
               type: ActionType.REVISION,
@@ -227,11 +290,11 @@
             },
             {
               type: ActionType.CHANGE,
-              key: ChangeActions.MUTE,
+              key: ChangeActions.REVIEWED,
             },
             {
               type: ActionType.CHANGE,
-              key: ChangeActions.UNMUTE,
+              key: ChangeActions.UNREVIEWED,
             },
             {
               type: ActionType.CHANGE,
@@ -261,6 +324,21 @@
         type: Array,
         value() { return []; },
       },
+      // editPatchsetLoaded == "does the current selected patch range have
+      // 'edit' as one of either basePatchNum or patchNum".
+      editPatchsetLoaded: {
+        type: Boolean,
+        value: false,
+      },
+      // editMode == "is edit mode enabled in the file list".
+      editMode: {
+        type: Boolean,
+        value: false,
+      },
+      editBasedOnCurrentPatchSet: {
+        type: Boolean,
+        value: true,
+      },
     },
 
     ActionType,
@@ -274,7 +352,15 @@
 
     observers: [
       '_actionsChanged(actions.*, revisionActions.*, _additionalActions.*)',
+      '_changeChanged(change)',
+      '_editStatusChanged(editMode, editPatchsetLoaded, ' +
+          'editBasedOnCurrentPatchSet, actions.*, change)',
     ],
+
+    listeners: {
+      'fullscreen-overlay-opened': '_handleHideBackgroundContent',
+      'fullscreen-overlay-closed': '_handleShowBackgroundContent',
+    },
 
     ready() {
       this.$.jsAPI.addElement(this.$.jsAPI.Element.CHANGE_ACTIONS, this);
@@ -282,7 +368,7 @@
     },
 
     reload() {
-      if (!this.changeNum || !this.patchNum) {
+      if (!this.changeNum || !this.latestPatchNum) {
         return Promise.resolve();
       }
 
@@ -293,11 +379,14 @@
         this.revisionActions = revisionActions;
         this._loading = false;
       }).catch(err => {
-        alert('Couldn’t load revision actions. Check the console ' +
-            'and contact the PolyGerrit team for assistance.');
+        this.fire('show-alert', {message: ERR_REVISION_ACTIONS});
         this._loading = false;
         throw err;
       });
+    },
+
+    _changeChanged() {
+      this.reload();
     },
 
     addActionButton(type, label) {
@@ -380,6 +469,14 @@
       }
     },
 
+    getActionDetails(action) {
+      if (this.revisionActions[action]) {
+        return this.revisionActions[action];
+      } else if (this.actions[action]) {
+        return this.actions[action];
+      }
+    },
+
     _indexOfActionButtonWithKey(key) {
       for (let i = 0; i < this._additionalActions.length; i++) {
         if (this._additionalActions[i].__key === key) {
@@ -391,7 +488,7 @@
 
     _getRevisionActions() {
       return this.$.restAPI.getChangeRevisionActions(this.changeNum,
-          this.patchNum);
+          this.latestPatchNum);
     },
 
     _shouldHideActions(actions, loading) {
@@ -409,13 +506,79 @@
       this.hidden = this._keyCount(actionsChangeRecord) === 0 &&
           this._keyCount(revisionActionsChangeRecord) === 0 &&
               additionalActions.length === 0;
-      this._actionLoadingMessage = null;
+      this._actionLoadingMessage = '';
       this._disabledMenuActions = [];
 
       const revisionActions = revisionActionsChangeRecord.base || {};
-      if (Object.keys(revisionActions).length !== 0 &&
-          !revisionActions.download) {
-        this.set('revisionActions.download', DOWNLOAD_ACTION);
+      if (Object.keys(revisionActions).length !== 0) {
+        if (!revisionActions.download) {
+          this.set('revisionActions.download', DOWNLOAD_ACTION);
+        }
+      }
+    },
+
+    _editStatusChanged(editMode, editPatchsetLoaded,
+        editBasedOnCurrentPatchSet) {
+      const changeActions = this.actions;
+
+      if (editPatchsetLoaded) {
+        // Only show actions that mutate an edit if an actual edit patch set
+        // is loaded.
+        if (this.changeIsOpen(this.change.status)) {
+          if (editBasedOnCurrentPatchSet) {
+            if (!changeActions.publishEdit) {
+              this.set('actions.publishEdit', PUBLISH_EDIT);
+            }
+            if (changeActions.rebaseEdit) {
+              delete this.actions.rebaseEdit;
+              this.notifyPath('actions.rebaseEdit');
+            }
+          } else {
+            if (!changeActions.rebaseEdit) {
+              this.set('actions.rebaseEdit', REBASE_EDIT);
+            }
+            if (changeActions.publishEdit) {
+              delete this.actions.publishEdit;
+              this.notifyPath('actions.publishEdit');
+            }
+          }
+        }
+        if (!changeActions.deleteEdit) {
+          this.set('actions.deleteEdit', DELETE_EDIT);
+        }
+      } else {
+        if (changeActions.publishEdit) {
+          delete this.actions.publishEdit;
+          this.notifyPath('actions.publishEdit');
+        }
+        if (changeActions.rebaseEdit) {
+          delete this.actions.rebaseEdit;
+          this.notifyPath('actions.rebaseEdit');
+        }
+        if (changeActions.deleteEdit) {
+          delete this.actions.deleteEdit;
+          this.notifyPath('actions.deleteEdit');
+        }
+      }
+
+      if (this.changeIsOpen(this.change.status)) {
+        // Only show edit button if there is no edit patchset loaded and the
+        // file list is not in edit mode.
+        if (editPatchsetLoaded || editMode) {
+          if (changeActions.edit) {
+            delete this.actions.edit;
+            this.notifyPath('actions.edit');
+          }
+          if (!changeActions.doneEdit) {
+            this.set('actions.doneEdit', DONE_EDIT);
+          }
+        } else {
+          if (!changeActions.edit) { this.set('actions.edit', EDIT); }
+          if (changeActions.doneEdit) {
+            delete this.actions.doneEdit;
+            this.notifyPath('actions.doneEdit');
+          }
+        }
       }
     },
 
@@ -441,7 +604,7 @@
      * Get highest score for last missing permitted label for current change.
      * Returns null if no labels permitted or more than one label missing.
      *
-     * @return {{label: string, score: string}}
+     * @return {{label: string, score: string}|null}
      */
     _getTopMissingApproval() {
       if (!this.change ||
@@ -510,24 +673,29 @@
       const result = [];
       const values = this._getValuesFor(
           type === ActionType.CHANGE ? ChangeActions : RevisionActions);
-      for (const a in actions) {
-        if (!values.includes(a)) { continue; }
+      const pluginActions = [];
+      Object.keys(actions).forEach(a => {
         actions[a].__key = a;
         actions[a].__type = type;
         actions[a].__primary = primaryActionKeys.includes(a);
-        if (actions[a].label === 'Delete') {
-          // This label is common within change and revision actions. Make it
-          // more explicit to the user.
-          if (type === ActionType.CHANGE) {
-            actions[a].label += ' Change';
-          } else if (type === ActionType.REVISION) {
-            actions[a].label += ' Revision';
-          }
+        // Plugin actions always contain ~ in the key.
+        if (a.indexOf('~') !== -1) {
+          this._populateActionUrl(actions[a]);
+          pluginActions.push(actions[a]);
+          // Add server-side provided plugin actions to overflow menu.
+          this._overflowActions.push({
+            type,
+            key: a,
+          });
+          return;
+        } else if (!values.includes(a)) {
+          return;
         }
+        actions[a].label = this._getActionLabel(actions[a], type);
+
         // Triggers a re-render by ensuring object inequality.
-        // TODO(andybons): Polyfill for Object.assign.
         result.push(Object.assign({}, actions[a]));
-      }
+      });
 
       let additionalActions = (additionalActionsChangeRecord &&
       additionalActionsChangeRecord.base) || [];
@@ -538,7 +706,41 @@
         // Triggers a re-render by ensuring object inequality.
         return Object.assign({}, a);
       });
-      return result.concat(additionalActions);
+      return result.concat(additionalActions).concat(pluginActions);
+    },
+
+    _populateActionUrl(action) {
+      const patchNum =
+            action.__type === ActionType.REVISION ? this.latestPatchNum : null;
+      this.$.restAPI.getChangeActionURL(
+          this.changeNum, patchNum, '/' + action.__key)
+          .then(url => action.__url = url);
+    },
+
+    /**
+     * Given a change action, return a display label that uses the appropriate
+     * casing or includes explanatory details.
+     */
+    _getActionLabel(action, type) {
+      if (action.label === 'Delete' && type === ActionType.CHANGE) {
+        // This label is common within change and revision actions. Make it more
+        // explicit to the user.
+        return 'Delete change';
+      } else if (action.label === 'WIP' && type === ActionType.CHANGE) {
+        return 'Mark as work in progress';
+      }
+      // Otherwise, just map the anme to sentence case.
+      return this._toSentenceCase(action.label);
+    },
+
+    /**
+     * Capitalize the first letter and lowecase all others.
+     * @param {string} s
+     * @return {string}
+     */
+    _toSentenceCase(s) {
+      if (!s.length) { return ''; }
+      return s[0].toUpperCase() + s.slice(1).toLowerCase();
     },
 
     _computeLoadingLabel(action) {
@@ -547,13 +749,12 @@
 
     _canSubmitChange() {
       return this.$.jsAPI.canSubmitChange(this.change,
-          this._getRevision(this.change, this.patchNum));
+          this._getRevision(this.change, this.latestPatchNum));
     },
 
     _getRevision(change, patchNum) {
-      const num = window.parseInt(patchNum, 10);
       for (const rev of Object.values(change.revisions)) {
-        if (rev._number === num) {
+        if (this.patchNumEquals(rev._number, patchNum)) {
           return rev;
         }
       }
@@ -574,9 +775,10 @@
 
     _handleActionTap(e) {
       e.preventDefault();
-      const el = Polymer.dom(e).rootTarget;
+      const el = Polymer.dom(e).localTarget;
       const key = el.getAttribute('data-action-key');
-      if (key.startsWith(ADDITIONAL_ACTION_KEY_PREFIX)) {
+      if (key.startsWith(ADDITIONAL_ACTION_KEY_PREFIX) ||
+          key.indexOf('~') !== -1) {
         this.fire(`${key}-tap`, {node: el});
         return;
       }
@@ -585,10 +787,19 @@
     },
 
     _handleOveflowItemTap(e) {
+      e.preventDefault();
+      const el = Polymer.dom(e).localTarget;
+      const key = e.detail.action.__key;
+      if (key.startsWith(ADDITIONAL_ACTION_KEY_PREFIX) ||
+          key.indexOf('~') !== -1) {
+        this.fire(`${key}-tap`, {node: el});
+        return;
+      }
       this._handleAction(e.detail.action.__type, e.detail.action.__key);
     },
 
     _handleAction(type, key) {
+      this.$.reporting.reportInteraction(`${type}-${key}`);
       switch (type) {
         case ActionType.REVISION:
           this._handleRevisionAction(key);
@@ -617,11 +828,29 @@
           this._fireAction(
               this._prependSlash(key), action, true, action.payload);
           break;
+        case ChangeActions.EDIT:
+          this._handleEditTap();
+          break;
+        case ChangeActions.DONE_EDIT:
+          this._handleDoneEditTap();
+          break;
         case ChangeActions.DELETE:
           this._handleDeleteTap();
           break;
+        case ChangeActions.DELETE_EDIT:
+          this._handleDeleteEditTap();
+          break;
         case ChangeActions.WIP:
           this._handleWipTap();
+          break;
+        case ChangeActions.MOVE:
+          this._handleMoveTap();
+          break;
+        case ChangeActions.PUBLISH_EDIT:
+          this._handlePublishEditTap();
+          break;
+        case ChangeActions.REBASE_EDIT:
+          this._handleRebaseEditTap();
           break;
         default:
           this._fireAction(this._prependSlash(key), this.actions[key], false);
@@ -632,9 +861,7 @@
       switch (key) {
         case RevisionActions.REBASE:
           this._showActionDialog(this.$.confirmRebase);
-          break;
-        case RevisionActions.DELETE:
-          this._handleDeleteConfirm();
+          this.$.confirmRebase.fetchRecentChanges();
           break;
         case RevisionActions.CHERRYPICK:
           this._handleCherrypickTap();
@@ -658,9 +885,8 @@
     },
 
     /**
-     * Returns true if hasParent is defined (can be either true or false).
-     * returns false otherwise.
-     * @return {boolean} hasParent
+     * _hasKnownChainState set to true true if hasParent is defined (can be
+     * either true or false). set to false otherwise.
      */
     _computeChainState(hasParent) {
       this._hasKnownChainState = true;
@@ -696,11 +922,11 @@
       const el = this.$.confirmCherrypick;
       if (!el.branch) {
         // TODO(davido): Fix error handling
-        alert('The destination branch can’t be empty.');
+        this.fire('show-alert', {message: ERR_BRANCH_EMPTY});
         return;
       }
       if (!el.message) {
-        alert('The commit message can’t be empty.');
+        this.fire('show-alert', {message: ERR_COMMIT_EMPTY});
         return;
       }
       this.$.overlay.close();
@@ -711,6 +937,25 @@
           true,
           {
             destination: el.branch,
+            message: el.message,
+          }
+      );
+    },
+
+    _handleMoveConfirm() {
+      const el = this.$.confirmMove;
+      if (!el.branch) {
+        this.fire('show-alert', {message: ERR_BRANCH_EMPTY});
+        return;
+      }
+      this.$.overlay.close();
+      el.hidden = true;
+      this._fireAction(
+          '/move',
+          this.actions.move,
+          false,
+          {
+            destination_branch: el.branch,
             message: el.message,
           }
       );
@@ -736,6 +981,12 @@
       this._fireAction('/', this.actions[ChangeActions.DELETE], false);
     },
 
+    _handleDeleteEditConfirm() {
+      this._hideAllDialogs();
+
+      this._fireAction('/edit', this.actions.deleteEdit, false);
+    },
+
     _getActionOverflowIndex(type, key) {
       return this._overflowActions.findIndex(action => {
         return action.type === type && action.key === key;
@@ -749,7 +1000,7 @@
       if (this._getActionOverflowIndex(type, key) !== -1) {
         this.push('_disabledMenuActions', key === '/' ? 'delete' : key);
         return function() {
-          this._actionLoadingMessage = null;
+          this._actionLoadingMessage = '';
           this._disabledMenuActions = [];
         }.bind(this);
       }
@@ -759,12 +1010,18 @@
       buttonEl.setAttribute('loading', true);
       buttonEl.disabled = true;
       return function() {
-        this._actionLoadingMessage = null;
+        this._actionLoadingMessage = '';
         buttonEl.removeAttribute('loading');
         buttonEl.disabled = false;
       }.bind(this);
     },
 
+    /**
+     * @param {string} endpoint
+     * @param {!Object|undefined} action
+     * @param {boolean} revAction
+     * @param {!Object|string=} opt_payload
+     */
     _fireAction(endpoint, action, revAction, opt_payload) {
       const cleanupFn =
           this._setLoadingOnButtonWithKey(action.__type, action.__key);
@@ -787,10 +1044,9 @@
     // https://bugs.chromium.org/p/gerrit/issues/detail?id=4671 is resolved.
     _setLabelValuesOnRevert(newChangeId) {
       const labels = this.$.jsAPI.getLabelValuesPostRevert(this.change);
-      if (labels) {
-        const url = `/changes/${newChangeId}/revisions/current/review`;
-        this.$.restAPI.send(this.actions.revert.method, url, {labels});
-      }
+      if (!labels) { return Promise.resolve(); }
+      return this.$.restAPI.getChangeURLAndSend(newChangeId,
+          this.actions.revert.method, 'current', '/review', {labels});
     },
 
     _handleResponse(action, response) {
@@ -798,20 +1054,26 @@
       return this.$.restAPI.getResponseObject(response).then(obj => {
         switch (action.__key) {
           case ChangeActions.REVERT:
-            this._setLabelValuesOnRevert(obj.change_id);
-            /* falls through */
+            this._waitForChangeReachable(obj._number)
+                .then(() => this._setLabelValuesOnRevert(obj._number))
+                .then(() => {
+                  Gerrit.Nav.navigateToChange(obj);
+                });
+            break;
           case RevisionActions.CHERRYPICK:
-            page.show(this.changePath(obj._number));
+            this._waitForChangeReachable(obj._number).then(() => {
+              Gerrit.Nav.navigateToChange(obj);
+            });
             break;
           case ChangeActions.DELETE:
-          case RevisionActions.DELETE:
             if (action.__type === ActionType.CHANGE) {
               page.show('/');
-            } else {
-              page.show(this.changePath(this.changeNum));
             }
             break;
           case ChangeActions.WIP:
+          case ChangeActions.DELETE_EDIT:
+          case ChangeActions.PUBLISH_EDIT:
+          case ChangeActions.REBASE_EDIT:
             page.show(this.changePath(this.changeNum));
             break;
           default:
@@ -832,11 +1094,24 @@
       });
     },
 
+    /**
+     * @param {string} method
+     * @param {string|!Object|undefined} payload
+     * @param {string} actionEndpoint
+     * @param {boolean} revisionAction
+     * @param {?Function} cleanupFn
+     * @param {?Function=} opt_errorFn
+     */
     _send(method, payload, actionEndpoint, revisionAction, cleanupFn,
         opt_errorFn) {
-      return this.fetchIsLatestKnown(this.change, this.$.restAPI)
-          .then(isLatest => {
-            if (!isLatest) {
+      const handleError = response => {
+        cleanupFn.call(this);
+        this._handleResponseError(response);
+      };
+
+      return this.fetchChangeUpdates(this.change, this.$.restAPI)
+          .then(result => {
+            if (!result.isLatest) {
               this.fire('show-alert', {
                 message: 'Cannot set label: a newer patch has been ' +
                     'uploaded to this change.',
@@ -846,14 +1121,17 @@
                   Gerrit.Nav.navigateToChange(this.change);
                 },
               });
+
+              // Because this is not a network error, call the cleanup function
+              // but not the error handler.
               cleanupFn();
+
               return Promise.resolve();
             }
-
-            const url = this.$.restAPI.getChangeActionURL(this.changeNum,
-                revisionAction ? this.patchNum : null, actionEndpoint);
-            return this.$.restAPI.send(method, url, payload,
-                this._handleResponseError, this).then(response => {
+            const patchNum = revisionAction ? this.latestPatchNum : null;
+            return this.$.restAPI.getChangeURLAndSend(this.changeNum, method,
+                patchNum, actionEndpoint, payload, handleError, this)
+                .then(response => {
                   cleanupFn.call(this);
                   return response;
                 });
@@ -869,6 +1147,12 @@
       this._showActionDialog(this.$.confirmCherrypick);
     },
 
+    _handleMoveTap() {
+      this.$.confirmMove.branch = '';
+      this.$.confirmMove.message = '';
+      this._showActionDialog(this.$.confirmMove);
+    },
+
     _handleDownloadTap() {
       this.fire('download-tap', null, {bubbles: false});
     },
@@ -877,30 +1161,51 @@
       this._showActionDialog(this.$.confirmDeleteDialog);
     },
 
+    _handleDeleteEditTap() {
+      this._showActionDialog(this.$.confirmDeleteEditDialog);
+    },
+
     _handleWipTap() {
       this._fireAction('/wip', this.actions.wip, false);
+    },
+
+    _handlePublishEditTap() {
+      this._fireAction('/edit:publish', this.actions.publishEdit, false);
+    },
+
+    _handleRebaseEditTap() {
+      this._fireAction('/edit:rebase', this.actions.rebaseEdit, false);
+    },
+
+    _handleHideBackgroundContent() {
+      this.$.mainContent.classList.add('overlayOpen');
+    },
+
+    _handleShowBackgroundContent() {
+      this.$.mainContent.classList.remove('overlayOpen');
     },
 
     /**
      * Merge sources of change actions into a single ordered array of action
      * values.
-     * @param {splices} changeActionsRecord
-     * @param {splices} revisionActionsRecord
-     * @param {splices} primariesRecord
-     * @param {splices} additionalActionsRecord
-     * @param {Object} change The change object.
-     * @return {Array}
+     * @param {!Array} changeActionsRecord
+     * @param {!Array} revisionActionsRecord
+     * @param {!Array} primariesRecord
+     * @param {!Array} additionalActionsRecord
+     * @param {!Object} change The change object.
+     * @return {!Array}
      */
     _computeAllActions(changeActionsRecord, revisionActionsRecord,
         primariesRecord, additionalActionsRecord, change) {
       const revisionActionValues = this._getActionValues(revisionActionsRecord,
           primariesRecord, additionalActionsRecord, ActionType.REVISION);
       const changeActionValues = this._getActionValues(changeActionsRecord,
-          primariesRecord, additionalActionsRecord, ActionType.CHANGE, change);
+          primariesRecord, additionalActionsRecord, ActionType.CHANGE);
       const quickApprove = this._getQuickApproveAction();
       if (quickApprove) {
         changeActionValues.unshift(quickApprove);
       }
+
       return revisionActionValues
           .concat(changeActionValues)
           .sort(this._actionComparator.bind(this));
@@ -950,6 +1255,13 @@
       });
     },
 
+    _filterPrimaryActions(_topLevelActions) {
+      this._topLevelPrimaryActions = _topLevelActions.filter(action =>
+          action.__primary);
+      this._topLevelSecondaryActions = _topLevelActions.filter(action =>
+          !action.__primary);
+    },
+
     _computeMenuActions(actionRecord, hiddenActionsRecord) {
       const hiddenActions = hiddenActionsRecord.base || [];
       return actionRecord.base.filter(a => {
@@ -964,6 +1276,48 @@
           action,
         };
       });
+    },
+
+    /**
+     * Occasionally, a change created by a change action is not yet knwon to the
+     * API for a brief time. Wait for the given change number to be recognized.
+     *
+     * Returns a promise that resolves with true if a request is recognized, or
+     * false if the change was never recognized after all attempts.
+     *
+     * @param  {number} changeNum
+     * @return {Promise<boolean>}
+     */
+    _waitForChangeReachable(changeNum) {
+      let attempsRemaining = AWAIT_CHANGE_ATTEMPTS;
+      return new Promise(resolve => {
+        const check = () => {
+          attempsRemaining--;
+          // Pass a no-op error handler to avoid the "not found" error toast.
+          this.$.restAPI.getChange(changeNum, () => {}).then(response => {
+            // If the response is 404, the response will be undefined.
+            if (response) {
+              resolve(true);
+              return;
+            }
+
+            if (attempsRemaining) {
+              this.async(check, AWAIT_CHANGE_TIMEOUT_MS);
+            } else {
+              resolve(false);
+            }
+          });
+        };
+        check();
+      });
+    },
+
+    _handleEditTap() {
+      this.dispatchEvent(new CustomEvent('edit-tap', {bubbles: false}));
+    },
+
+    _handleDoneEditTap() {
+      this.dispatchEvent(new CustomEvent('done-edit-tap', {bubbles: false}));
     },
   });
 })();

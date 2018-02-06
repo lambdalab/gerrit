@@ -73,47 +73,32 @@ the `gerrit-security-fixes` project be taken over into the public
 
 == Create the Actual Release
 
-To create a Gerrit release the following steps have to be done:
-
-. link:#build-gerrit[Build the Gerrit Release]
-. link:#publish-gerrit[Publish the Gerrit Release]
-.. link:#publish-to-maven-central[Publish the Gerrit artifacts to Maven Central]
-.. link:#publish-to-google-storage[Publish the Gerrit WAR to Google Storage]
-.. link:#push-stable[Push the Stable Branch]
-.. link:#push-tag[Push the Release Tag]
-.. link:#upload-documentation[Upload the Documentation]
-.. link:#finalize-release-notes[Finalize Release Notes]
-.. link:#update-issues[Update the Issues]
-.. link:#announce[Announce on Mailing List]
-. link:#increase-version[Increase Gerrit Version for Current Development]
-. link:#merge-stable[Merge `stable` into `master`]
-
-
 [[update-versions]]
 === Update Versions and Create Release Tag
 
 Before doing the release build, the `GERRIT_VERSION` in the `version.bzl`
-file must be updated, e.g. change it from `2.5-SNAPSHOT` to `2.5`.
+file must be updated, e.g. change it from `$version-SNAPSHOT` to `$version`.
 
-In addition the version must be updated in a number of pom.xml files.
+In addition the version must be updated in a number of `*_pom.xml` files.
 
 To do this run the `./tools/version.py` script and provide the new
 version as parameter, e.g.:
 
 ----
-  ./tools/version.py 2.5
+  version=2.15
+  ./tools/version.py $version
 ----
 
-Commit the changes and create the release tag on the new commit:
+Commit the changes and create a signed release tag on the new commit:
 
 ----
-  git tag -a v2.5
+  git tag -s -m "v$version" "v$version"
 ----
 
 Tag the plugins:
 
 ----
-  git submodule foreach git tag -a v2.5
+  git submodule foreach git tag -s -m "v$version" "v$version"
 ----
 
 [[build-gerrit]]
@@ -126,8 +111,12 @@ Tag the plugins:
   ./tools/maven/api.sh install
 ----
 
-* Sanity check WAR
-* Test the new Gerrit version
+* Verify the WAR version:
++
+----
+  java -jar ~/dl/gerrit-$version.war --version
+----
+* Try upgrading a test site and launching the daemon
 
 * Verify plugin versions
 +
@@ -148,7 +137,7 @@ link:dev-release-deploy-config.html#deploy-configuration-setting-maven-central[
 configuration] for deploying to Maven Central
 
 * Make sure that the version is updated in the `version.bzl` file and in
-the `pom.xml` files as described in the link:#update-versions[Update
+the `*_pom.xml` files as described in the link:#update-versions[Update
 Versions and Create Release Tag] section.
 
 * Push the WAR to Maven Central:
@@ -203,7 +192,7 @@ section, e.g. https://oss.sonatype.org/content/repositories/comgooglegerrit-1029
 +
 Use this URL for further testing of the artifacts in this repository,
 e.g. to try building a plugin against the plugin API in this repository
-update the version in the `pom.xml` and configure the repository:
+update the version in the `*_pom.xml` and configure the repository:
 +
 ----
   <repositories>
@@ -257,11 +246,11 @@ gerrit-releases bucket in the Google cloud storage console]
 [[push-stable]]
 ==== Push the Stable Branch
 
-* Create the stable branch `stable-2.5` in the `gerrit` project via the
+* Create the stable branch `stable-$version` in the `gerrit` project via the
 link:https://gerrit-review.googlesource.com/#/admin/projects/gerrit,branches[
 Gerrit Web UI] or by push.
 
-* Push the commits done on `stable-2.5` to `refs/for/stable-2.5` and
+* Push the commits done on `stable-$version` to `refs/for/stable-$version` and
 get them merged
 
 
@@ -271,13 +260,13 @@ get them merged
 Push the new Release Tag:
 
 ----
-  git push gerrit-review tag v2.5
+  git push gerrit-review tag v$version
 ----
 
 Push the new Release Tag on the plugins:
 
 ----
-  git submodule foreach git push gerrit-review tag v2.5
+  git submodule foreach git push gerrit-review tag v$version
 ----
 
 
@@ -314,11 +303,11 @@ homepage project] to change the version numbers to the new version.
 Update the issues by hand. There is no script for this.
 
 Our current process is an issue should be updated to say `Status =
-Submitted, FixedIn-2.5` once the change is submitted, but before the
+Submitted, FixedIn-$version` once the change is submitted, but before the
 release.
 
 After the release is actually made, you can search in Google Code for
-`Status=Submitted FixedIn=2.5` and then batch update these changes
+`Status=Submitted FixedIn=$version` and then batch update these changes
 to say `Status=Released`. Make sure the pulldown says `All Issues`
 because `Status=Submitted` is considered a closed issue.
 
@@ -326,27 +315,17 @@ because `Status=Submitted` is considered a closed issue.
 [[announce]]
 ==== Announce on Mailing List
 
-* Send an email to the mailing list to announce the release, consider
-including some or all of the following in the email:
-** A link to the release and the release notes
-** A link to the docs
-** Describe the type of release (stable, bug fix, RC)
-** Hash values (SHA1, SHA256, MD5) for the release WAR file.
-+
-The SHA1 and MD5 can be taken from the artifact page on Sonatype. The
-SHA256 can be generated with
-`openssl sha -sha256 bazel-bin/release.war` or an equivalent
-command.
+Send an email to the mailing list to announce the release. The content of the
+announcement email is generated with the `release-announcement.py` which
+automatically includes all the necessary links, hash values, and wraps the
+text in a PGP signature.
 
-* Update the new discussion group announcement to be sticky
-** Go to: http://groups.google.com/group/repo-discuss/topics
-** Click on the announcement thread
-** Near the top right, click on actions
-** Under actions, click the "Display this top first" checkbox
+For details refer to the documentation in the script's header, and/or the
+help text:
 
-* Update the previous discussion group announcement to no longer be sticky
-** See above (unclick checkbox)
-
+----
+ ./tools/release-announcement.py --help
+----
 
 [[increase-version]]
 === Increase Gerrit Version for Current Development
@@ -378,6 +357,13 @@ none of the changes/fixes ever get lost.
   git merge stable
 ----
 
+[[update-api-version-in-bazlets-repository]]
+
+Bazlets is used by gerrit plugins to simplify build process. To allow the
+new released version to be used by gerrit plugins,
+link:https://gerrit.googlesource.com/bazlets/+/master/gerrit_api.bzl#8[gerrit_api.bzl]
+must reference the new version. Upload a change to bazlets repository with
+api version upgrade.
 
 GERRIT
 ------

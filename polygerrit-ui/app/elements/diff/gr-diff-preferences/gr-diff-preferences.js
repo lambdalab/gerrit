@@ -32,6 +32,7 @@
         reflectToAttribute: true,
       },
 
+      /** @type {?} */
       _newPrefs: Object,
       _newLocalPrefs: Object,
     },
@@ -44,7 +45,7 @@
     getFocusStops() {
       return {
         start: this.$.contextSelect,
-        end: this.$.cancelButton,
+        end: this.$.saveButton,
       };
     },
 

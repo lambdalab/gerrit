@@ -14,6 +14,10 @@
 (function() {
   'use strict';
 
+  // The maximum age of a keydown event to be used in a jump navigation. This is
+  // only for cases when the keyup event is lost.
+  const G_KEY_TIMEOUT_MS = 1000;
+
   // Eagerly render Polymer components when backgrounded. (Skips
   // requestAnimationFrame.)
   // @see https://github.com/Polymer/polymer/issues/3851
@@ -31,6 +35,9 @@
      */
 
     properties: {
+      /**
+       * @type {{ query: string, view: string, screen: string }}
+       */
       params: Object,
       keyEventTarget: {
         type: Object,
@@ -41,6 +48,20 @@
         type: Object,
         observer: '_accountChanged',
       },
+
+      /**
+       * The last time the g key was pressed in milliseconds (or a keydown event
+       * was handled if the key is held down).
+       * @type {number|null}
+       */
+      _lastGKeyPressTimestamp: {
+        type: Number,
+        value: null,
+      },
+
+      /**
+       * @type {{ plugin: Object }}
+       */
       _serverConfig: Object,
       _version: String,
       _showChangeListView: Boolean,
@@ -50,10 +71,20 @@
       _showSettingsView: Boolean,
       _showAdminView: Boolean,
       _showCLAView: Boolean,
+      _showEditorView: Boolean,
+      _showPluginScreen: Boolean,
+      /** @type {?} */
       _viewState: Object,
+      /** @type {?} */
       _lastError: Object,
       _lastSearchPage: String,
       _path: String,
+      _isShadowDom: Boolean,
+      _pluginScreenName: {
+        type: String,
+        computed: '_computePluginScreenName(params)',
+      },
+      _settingsUrl: String,
     },
 
     listeners: {
@@ -73,18 +104,13 @@
 
     keyBindings: {
       '?': '_showKeyboardShortcuts',
-    },
-
-    created() {
-      // If shadow dom cookie is set, reload the page using shadow dom.
-      if (util.getCookie('USE_SHADOW_DOM') === 'true') {
-        if (!window.location.href.includes('?dom=shadow')) {
-          window.location.href = window.location.href + '?dom=shadow';
-        }
-      }
+      'g:keydown': '_gKeyDown',
+      'g:keyup': '_gKeyUp',
+      'a m o': '_jumpKeyPressed',
     },
 
     ready() {
+      this._isShadowDom = Polymer.Settings.useShadow;
       this.$.router.start();
 
       this.$.restAPI.getAccount().then(account => {
@@ -96,6 +122,10 @@
       this.$.restAPI.getVersion().then(version => {
         this._version = version;
       });
+
+      // Note: this is evaluated here to ensure that it only happens after the
+      // router has been initialized. @see Issue 7837
+      this._settingsUrl = Gerrit.Nav.getUrlForSettings();
 
       this.$.reporting.appStarted();
       this._viewState = {
@@ -125,29 +155,34 @@
       // Preferences are cached when a user is logged in; warm them.
       this.$.restAPI.getPreferences();
       this.$.restAPI.getDiffPreferences();
+      this.$.restAPI.getEditPreferences();
       this.$.errorManager.knownAccountId =
           this._account && this._account._account_id || null;
     },
 
     _viewChanged(view) {
       this.$.errorView.classList.remove('show');
-      this.set('_showChangeListView', view === 'gr-change-list-view');
-      this.set('_showDashboardView', view === 'gr-dashboard-view');
-      this.set('_showChangeView', view === 'gr-change-view');
-      this.set('_showDiffView', view === 'gr-diff-view');
-      this.set('_showSettingsView', view === 'gr-settings-view');
-      this.set('_showAdminView', view === 'gr-admin-view');
-      this.set('_showCLAView', view === 'gr-cla-view');
+      this.set('_showChangeListView', view === Gerrit.Nav.View.SEARCH);
+      this.set('_showDashboardView', view === Gerrit.Nav.View.DASHBOARD);
+      this.set('_showChangeView', view === Gerrit.Nav.View.CHANGE);
+      this.set('_showDiffView', view === Gerrit.Nav.View.DIFF);
+      this.set('_showSettingsView', view === Gerrit.Nav.View.SETTINGS);
+      this.set('_showAdminView', view === Gerrit.Nav.View.ADMIN ||
+          view === Gerrit.Nav.View.GROUP || view === Gerrit.Nav.View.REPO);
+      this.set('_showCLAView', view === Gerrit.Nav.View.AGREEMENTS);
+      this.set('_showEditorView', view === Gerrit.Nav.View.EDIT);
+      const isPluginScreen = view === Gerrit.Nav.View.PLUGIN_SCREEN;
+      this.set('_showPluginScreen', false);
+      // Navigation within plugin screens does not restamp gr-endpoint-decorator
+      // because _showPluginScreen value does not change. To force restamp,
+      // change _showPluginScreen value between true and false.
+      if (isPluginScreen) {
+        this.async(() => this.set('_showPluginScreen', true), 1);
+      }
       if (this.params.justRegistered) {
         this.$.registration.open();
       }
       this.$.header.unfloat();
-    },
-
-    _loginTapHandler(e) {
-      e.preventDefault();
-      page.show('/login/' + encodeURIComponent(
-          window.location.pathname + window.location.hash));
     },
 
     // Argument used for binding update only.
@@ -200,7 +235,7 @@
       if (!this.params) {
         return;
       }
-      const viewsToCheck = ['gr-change-list-view', 'gr-dashboard-view'];
+      const viewsToCheck = [Gerrit.Nav.View.SEARCH, Gerrit.Nav.View.DASHBOARD];
       if (viewsToCheck.includes(this.params.view)) {
         this.set('_lastSearchPage', location.pathname);
       }
@@ -225,7 +260,7 @@
 
     _handleAccountDetailUpdate(e) {
       this.$.mainHeader.reload();
-      if (this.params.view === 'gr-settings-view') {
+      if (this.params.view === Gerrit.Nav.View.SETTINGS) {
         this.$$('gr-settings-view').reloadAccountDetail();
       }
     },
@@ -233,6 +268,42 @@
     _handleRegistrationDialogClose(e) {
       this.params.justRegistered = false;
       this.$.registration.close();
+    },
+
+    _computeShadowClass(isShadowDom) {
+      return isShadowDom ? 'shadow' : '';
+    },
+
+    _gKeyDown(e) {
+      if (this.modifierPressed(e)) { return; }
+      this._lastGKeyPressTimestamp = Date.now();
+    },
+
+    _gKeyUp() {
+      this._lastGKeyPressTimestamp = null;
+    },
+
+    _jumpKeyPressed(e) {
+      if (!this._lastGKeyPressTimestamp ||
+          (Date.now() - this._lastGKeyPressTimestamp > G_KEY_TIMEOUT_MS) ||
+          this.shouldSuppressKeyboardShortcut(e)) { return; }
+      e.preventDefault();
+
+      let status = null;
+      if (e.detail.key === 'a') {
+        status = 'abandoned';
+      } else if (e.detail.key === 'm') {
+        status = 'merged';
+      } else if (e.detail.key === 'o') {
+        status = 'open';
+      }
+      if (status !== null) {
+        Gerrit.Nav.navigateToStatusSearch(status);
+      }
+    },
+
+    _computePluginScreenName({plugin, screen}) {
+      return Gerrit._getPluginScreenName(plugin, screen);
     },
   });
 })();

@@ -31,10 +31,22 @@
 
     properties: {
       index: Number,
-      moveToRoot: Boolean,
-      fixedPosition: Boolean,
+      isHidden: {
+        type: Boolean,
+        value: true,
+        reflectToAttribute: true,
+      },
+      verticalOffset: {
+        type: Number,
+        value: null,
+      },
+      horizontalOffset: {
+        type: Number,
+        value: null,
+      },
       suggestions: {
         type: Array,
+        value: () => [],
         observer: '_resetCursorStops',
       },
       _suggestionEls: {
@@ -44,6 +56,7 @@
     },
 
     behaviors: [
+      Polymer.IronFitBehavior,
       Gerrit.KeyboardShortcutBehavior,
     ],
 
@@ -55,31 +68,15 @@
       tab: '_handleTab',
     },
 
-    attached() {
-      if (this.fixedPosition) {
-        this.classList.add('fixed');
-      }
-    },
-
     close() {
-      if (this.moveToRoot) {
-        Gerrit.getRootElement().removeChild(this);
-      } else {
-        this.hidden = true;
-      }
+      this.isHidden = true;
     },
 
     open() {
-      if (this.moveToRoot) {
-        Gerrit.getRootElement().appendChild(this);
-      }
+      this.isHidden = false;
+      this.refit();
       this._resetCursorStops();
       this._resetCursorIndex();
-    },
-
-    setPosition(top, left) {
-      this.style.top = top;
-      this.style.left = left;
     },
 
     getCurrentText() {
@@ -87,7 +84,7 @@
     },
 
     _handleUp(e) {
-      if (!this.hidden) {
+      if (!this.isHidden) {
         e.preventDefault();
         e.stopPropagation();
         this.cursorUp();
@@ -95,21 +92,21 @@
     },
 
     _handleDown(e) {
-      if (!this.hidden) {
+      if (!this.isHidden) {
         e.preventDefault();
         e.stopPropagation();
         this.cursorDown();
       }
     },
 
-    cursorDown(e) {
-      if (!this.hidden) {
+    cursorDown() {
+      if (!this.isHidden) {
         this.$.cursor.next();
       }
     },
 
-    cursorUp(e) {
-      if (!this.hidden) {
+    cursorUp() {
+      if (!this.isHidden) {
         this.$.cursor.previous();
       }
     },
@@ -134,9 +131,7 @@
 
     _handleEscape() {
       this._fireClose();
-      if (!this.hidden) {
-        this.close();
-      }
+      this.close();
     },
 
     _handleTapItem(e) {
@@ -157,8 +152,12 @@
     },
 
     _resetCursorStops() {
-      Polymer.dom.flush();
-      this._suggestionEls = this.$.suggestions.querySelectorAll('li');
+      if (this.suggestions.length > 0) {
+        Polymer.dom.flush();
+        this._suggestionEls = this.$.suggestions.querySelectorAll('li');
+      } else {
+        this._suggestionEls = [];
+      }
     },
 
     _resetCursorIndex() {

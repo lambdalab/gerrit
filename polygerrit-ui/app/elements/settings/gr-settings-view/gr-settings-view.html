@@ -15,10 +15,12 @@ limitations under the License.
 -->
 
 <link rel="import" href="../../../bower_components/polymer/polymer.html">
-
-<link rel="import" href="../../../styles/shared-styles.html">
-<link rel="import" href="../../../styles/gr-menu-page-styles.html">
+<link rel="import" href="../../../behaviors/docs-url-behavior/docs-url-behavior.html">
 <link rel="import" href="../../../styles/gr-form-styles.html">
+<link rel="import" href="../../../styles/gr-menu-page-styles.html">
+<link rel="import" href="../../../styles/gr-page-nav-styles.html">
+<link rel="import" href="../../../styles/shared-styles.html">
+<link rel="import" href="../../plugins/gr-endpoint-decorator/gr-endpoint-decorator.html">
 <link rel="import" href="../../settings/gr-change-table-editor/gr-change-table-editor.html">
 <link rel="import" href="../../shared/gr-button/gr-button.html">
 <link rel="import" href="../../shared/gr-date-formatter/gr-date-formatter.html">
@@ -27,9 +29,11 @@ limitations under the License.
 <link rel="import" href="../../shared/gr-select/gr-select.html">
 <link rel="import" href="../gr-account-info/gr-account-info.html">
 <link rel="import" href="../gr-agreements-list/gr-agreements-list.html">
+<link rel="import" href="../gr-edit-preferences/gr-edit-preferences.html">
 <link rel="import" href="../gr-email-editor/gr-email-editor.html">
 <link rel="import" href="../gr-group-list/gr-group-list.html">
 <link rel="import" href="../gr-http-password/gr-http-password.html">
+<link rel="import" href="../gr-identities/gr-identities.html">
 <link rel="import" href="../gr-menu-editor/gr-menu-editor.html">
 <link rel="import" href="../gr-ssh-editor/gr-ssh-editor.html">
 <link rel="import" href="../gr-watched-projects-editor/gr-watched-projects-editor.html">
@@ -40,16 +44,27 @@ limitations under the License.
       #newEmailInput {
         width: 20em;
       }
+      #email {
+        margin-bottom: 1em;
+      }
+      .filters p {
+        margin-bottom: 1em;
+      }
+      .queryExample em {
+        color: violet;
+      }
     </style>
     <style include="gr-form-styles"></style>
     <style include="gr-menu-page-styles"></style>
+    <style include="gr-page-nav-styles"></style>
     <div class="loading" hidden$="[[!_loading]]">Loading...</div>
     <div hidden$="[[_loading]]" hidden>
-      <gr-page-nav>
+      <gr-page-nav class="navStyles">
         <ul>
           <li><a href="#Profile">Profile</a></li>
           <li><a href="#Preferences">Preferences</a></li>
           <li><a href="#DiffPreferences">Diff Preferences</a></li>
+          <li><a href="#EditPreferences">Edit Preferences</a></li>
           <li><a href="#Menu">Menu</a></li>
           <li><a href="#ChangeTableColumns">Change Table Columns</a></li>
           <li><a href="#Notifications">Notifications</a></li>
@@ -59,9 +74,15 @@ limitations under the License.
             SSH Keys
           </a></li>
           <li><a href="#Groups">Groups</a></li>
-          <li hidden$="[[!_serverConfig.auth.contributor_agreements]]">
-            <a href="#Agreements">Agreements</a>
-          </li>
+          <li><a href="#Identities">Identities</a></li>
+          <template is="dom-if" if="[[_serverConfig.auth.use_contributor_agreements]]">
+            <li>
+              <a href="#Agreements">Agreements</a>
+            </li>
+          </template>
+          <li><a href="#MailFilters">Mail Filters</a></li>
+          <gr-endpoint-decorator name="settings-menu-item">
+          </gr-endpoint-decorator>
         </ul>
       </gr-page-nav>
       <main class="gr-form-styles">
@@ -85,78 +106,84 @@ limitations under the License.
           <section>
             <span class="title">Changes per page</span>
             <span class="value">
-              <select
-                  is="gr-select"
+              <gr-select
                   bind-value="{{_localPrefs.changes_per_page}}">
-                <option value="10">10 rows per page</option>
-                <option value="25">25 rows per page</option>
-                <option value="50">50 rows per page</option>
-                <option value="100">100 rows per page</option>
-              </select>
+                <select>
+                  <option value="10">10 rows per page</option>
+                  <option value="25">25 rows per page</option>
+                  <option value="50">50 rows per page</option>
+                  <option value="100">100 rows per page</option>
+                </select>
+              </gr-select>
             </span>
           </section>
           <section>
             <span class="title">Date/time format</span>
             <span class="value">
-              <select
-                  is="gr-select"
+              <gr-select
                   bind-value="{{_localPrefs.date_format}}">
-                <option value="STD">Jun 3 ; Jun 3, 2016</option>
-                <option value="US">06/03 ; 06/03/16</option>
-                <option value="ISO">06-03 ; 2016-06-03</option>
-                <option value="EURO">3. Jun ; 03.06.2016</option>
-                <option value="UK">03/06 ; 03/06/2016</option>
-              </select>
-              <select
-                  is="gr-select"
+                <select>
+                  <option value="STD">Jun 3 ; Jun 3, 2016</option>
+                  <option value="US">06/03 ; 06/03/16</option>
+                  <option value="ISO">06-03 ; 2016-06-03</option>
+                  <option value="EURO">3. Jun ; 03.06.2016</option>
+                  <option value="UK">03/06 ; 03/06/2016</option>
+                </select>
+              </gr-select>
+              <gr-select
                   bind-value="{{_localPrefs.time_format}}">
-                <option value="HHMM_12">4:10 PM</option>
-                <option value="HHMM_24">16:10</option>
-              </select>
+                <select>
+                  <option value="HHMM_12">4:10 PM</option>
+                  <option value="HHMM_24">16:10</option>
+                </select>
+              </gr-select>
             </span>
           </section>
           <section>
             <span class="title">Email notifications</span>
             <span class="value">
-              <select
-                  is="gr-select"
+              <gr-select
                   bind-value="{{_localPrefs.email_strategy}}">
-                <option value="CC_ON_OWN_COMMENTS">Every comment</option>
-                <option value="ENABLED">Only comments left by others</option>
-                <option value="DISABLED">None</option>
-              </select>
+                <select>
+                  <option value="CC_ON_OWN_COMMENTS">Every comment</option>
+                  <option value="ENABLED">Only comments left by others</option>
+                  <option value="DISABLED">None</option>
+                </select>
+              </gr-select>
             </span>
           </section>
           <section hidden$="[[!_localPrefs.email_format]]">
             <span class="title">Email format</span>
             <span class="value">
-              <select
-                  is="gr-select"
+              <gr-select
                   bind-value="{{_localPrefs.email_format}}">
-                <option value="HTML_PLAINTEXT">HTML and plaintext</option>
-                <option value="PLAINTEXT">Plaintext only</option>
-              </select>
+                <select>
+                  <option value="HTML_PLAINTEXT">HTML and plaintext</option>
+                  <option value="PLAINTEXT">Plaintext only</option>
+                </select>
+              </gr-select>
             </span>
           </section>
           <section>
             <span class="title">Diff view</span>
             <span class="value">
-              <select
-                  is="gr-select"
+              <gr-select
                   bind-value="{{_localPrefs.diff_view}}">
-                <option value="SIDE_BY_SIDE">Side by side</option>
-                <option value="UNIFIED_DIFF">Unified diff</option>
-              </select>
+                <select>
+                  <option value="SIDE_BY_SIDE">Side by side</option>
+                  <option value="UNIFIED_DIFF">Unified diff</option>
+                </select>
+              </gr-select>
             </span>
           </section>
           <section>
-            <span class="title">Expand inline diffs</span>
+            <span class="title">Show size bars in file list</span>
             <span class="value">
               <input
-                  id="expandInlineDiffs"
+                  id="showSizeBarsInFileList"
                   type="checkbox"
-                  checked$="[[_localPrefs.expand_inline_diffs]]"
-                  on-change="_handleExpandInlineDiffsChanged">
+                  checked$="[[_localPrefs.size_bar_in_change_table]]"
+                  on-change="_handleShowSizeBarsInFileListChanged">
             </span>
           </section>
           <section>
@@ -167,6 +194,18 @@ limitations under the License.
                   type="checkbox"
                   checked$="[[_localPrefs.publish_comments_on_push]]"
                   on-change="_handlePublishCommentsOnPushChanged">
+            </span>
+          </section>
+          <section>
+            <span class="title">
+              Insert Signed-off-by Footer For Inline Edit Changes
+            </span>
+            <span class="value">
+              <input
+                  id="insertSignedOff"
+                  type="checkbox"
+                  checked$="[[_localPrefs.signed_off_by]]"
+                  on-change="_handleInsertSignedOff">
             </span>
           </section>
           <gr-button
@@ -183,27 +222,27 @@ limitations under the License.
           <section>
             <span class="title">Context</span>
             <span class="value">
-              <select
-                  is="gr-select"
-                  bind-value="{{_diffPrefs.context}}">
-                <option value="3">3 lines</option>
-                <option value="10">10 lines</option>
-                <option value="25">25 lines</option>
-                <option value="50">50 lines</option>
-                <option value="75">75 lines</option>
-                <option value="100">100 lines</option>
-                <option value="-1">Whole file</option>
-              </select>
+              <gr-select bind-value="{{_diffPrefs.context}}">
+                <select>
+                  <option value="3">3 lines</option>
+                  <option value="10">10 lines</option>
+                  <option value="25">25 lines</option>
+                  <option value="50">50 lines</option>
+                  <option value="75">75 lines</option>
+                  <option value="100">100 lines</option>
+                  <option value="-1">Whole file</option>
+                </select>
+              </gr-select>
             </span>
           </section>
           <section>
             <span class="title">Fit to screen</span>
             <span class="value">
               <input
-                  id="lineWrapping"
+                  id="diffLineWrapping"
                   type="checkbox"
                   checked$="[[_diffPrefs.line_wrapping]]"
-                  on-change="_handleLineWrappingChanged">
+                  on-change="_handleDiffLineWrappingChanged">
             </span>
           </section>
           <section id="columnsPref" hidden$="[[_diffPrefs.line_wrapping]]">
@@ -243,10 +282,10 @@ limitations under the License.
             <span class="title">Show tabs</span>
             <span class="value">
               <input
-                  id="showTabs"
+                  id="diffShowTabs"
                   type="checkbox"
                   checked$="[[_diffPrefs.show_tabs]]"
-                  on-change="_handleShowTabsChanged">
+                  on-change="_handleDiffShowTabsChanged">
             </span>
           </section>
           <section>
@@ -263,16 +302,30 @@ limitations under the License.
             <span class="title">Syntax highlighting</span>
             <span class="value">
               <input
-                  id="syntaxHighlighting"
+                  id="diffSyntaxHighlighting"
                   type="checkbox"
                   checked$="[[_diffPrefs.syntax_highlighting]]"
-                  on-change="_handleSyntaxHighlightingChanged">
+                  on-change="_handleDiffSyntaxHighlightingChanged">
             </span>
           </section>
           <gr-button
               id="saveDiffPrefs"
               on-tap="_handleSaveDiffPreferences"
               disabled$="[[!_diffPrefsChanged]]">Save changes</gr-button>
+        </fieldset>
+        <h2
+            id="EditPreferences"
+            class$="[[_computeHeaderClass(_editPrefsChanged)]]">
+          Edit Preferences
+        </h2>
+        <fieldset id="editPreferences">
+          <gr-edit-preferences
+              id="editPrefs"
+              has-unsaved-changes="{{_editPrefsChanged}}"></gr-edit-preferences>
+          <gr-button
+              id="saveEditPrefs"
+              on-tap="_handleSaveEditPreferences"
+              disabled$="[[!_editPrefsChanged]]">Save changes</gr-button>
         </fieldset>
         <h2 id="Menu" class$="[[_computeHeaderClass(_menuChanged)]]">Menu</h2>
         <fieldset id="menu">
@@ -288,6 +341,7 @@ limitations under the License.
         </h2>
         <fieldset id="changeTableColumns">
           <gr-change-table-editor
+              show-number="{{_showNumber}}"
               displayed-columns="{{_localChangeTableColumns}}">
           </gr-change-table-editor>
           <gr-button
@@ -364,12 +418,88 @@ limitations under the License.
         <fieldset>
           <gr-group-list id="groupList"></gr-group-list>
         </fieldset>
-        <div hidden$="[[!_serverConfig.auth.contributor_agreements]]">
+        <h2 id="Identities">Identities</h2>
+        <fieldset>
+          <gr-identities id="identities"></gr-identities>
+        </fieldset>
+        <template is="dom-if" if="[[_serverConfig.auth.use_contributor_agreements]]">
           <h2 id="Agreements">Agreements</h2>
           <fieldset>
             <gr-agreements-list id="agreementsList"></gr-agreements-list>
           </fieldset>
-        </div>
+        </template>
+        <h2 id="MailFilters">Mail Filters</h2>
+        <fieldset class="filters">
+          <p>
+            Gerrit emails include metadata about the change to support
+            writing mail filters.
+          </p>
+          <p>
+            Here are some example Gmail queries that can be used for filters or
+            for searching through archived messages. View the
+            <a href$="[[_getFilterDocsLink(_docsBaseUrl)]]"
+                target="_blank"
+                rel="nofollow">Gerrit documentation</a>
+            for the complete set of footers.
+          </p>
+          <table>
+            <tbody>
+              <tr><th>Name</th><th>Query</th></tr>
+              <tr>
+                <td>Changes requesting my review</td>
+                <td>
+                  <code class="queryExample">
+                    "Gerrit-Reviewer: <em>Your Name</em>
+                    &lt;<em>your.email@example.com</em>&gt;"
+                  </code>
+                </td>
+              </tr>
+              <tr>
+                <td>Changes from a specific owner</td>
+                <td>
+                  <code class="queryExample">
+                    "Gerrit-Owner: <em>Owner name</em>
+                    &lt;<em>owner.email@example.com</em>&gt;"
+                  </code>
+                </td>
+              </tr>
+              <tr>
+                <td>Changes targeting a specific branch</td>
+                <td>
+                  <code class="queryExample">
+                    "Gerrit-Branch: <em>branch-name</em>"
+                  </code>
+                </td>
+              </tr>
+              <tr>
+                <td>Changes in a specific project</td>
+                <td>
+                  <code class="queryExample">
+                    "Gerrit-Project: <em>project-name</em>"
+                  </code>
+                </td>
+              </tr>
+              <tr>
+                <td>Messages related to a specific Change ID</td>
+                <td>
+                  <code class="queryExample">
+                    "Gerrit-Change-Id: <em>Change ID</em>"
+                  </code>
+                </td>
+              </tr>
+              <tr>
+                <td>Messages related to a specific change number</td>
+                <td>
+                  <code class="queryExample">
+                    "Gerrit-Change-Number: <em>change number</em>"
+                  </code>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </fieldset>
+        <gr-endpoint-decorator name="settings-screen">
+        </gr-endpoint-decorator>
       </main>
     </div>
     <gr-rest-api-interface id="restAPI"></gr-rest-api-interface>

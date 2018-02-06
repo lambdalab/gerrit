@@ -5,10 +5,17 @@ load("//lib/codemirror:cm.bzl", "CM_VERSION", "DIFF_MATCH_PATCH_VERSION")
 load("//plugins:external_plugin_deps.bzl", "external_plugin_deps")
 
 http_archive(
+    name = "bazel_skylib",
+    sha256 = "bbccf674aa441c266df9894182d80de104cabd19be98be002f6d478aaa31574d",
+    strip_prefix = "bazel-skylib-2169ae1c374aab4a09aa90e65efe1a3aad4e279b",
+    urls = ["https://github.com/bazelbuild/bazel-skylib/archive/2169ae1c374aab4a09aa90e65efe1a3aad4e279b.tar.gz"],
+)
+
+http_archive(
     name = "io_bazel_rules_closure",
-    sha256 = "af1f5a31b8306faed9d09a38c8e2c1d6afc4c4a2dada3b5de11cceae8c7f4596",
-    strip_prefix = "rules_closure-f68d4b5a55c04ee50a3196590dce1ca8e7dbf438",
-    url = "https://bazel-mirror.storage.googleapis.com/github.com/bazelbuild/rules_closure/archive/f68d4b5a55c04ee50a3196590dce1ca8e7dbf438.tar.gz",  # 2017-05-05
+    sha256 = "6691c58a2cd30a86776dd9bb34898b041e37136f2dc7e24cadaeaf599c95c657",
+    strip_prefix = "rules_closure-08039ba8ca59f64248bb3b6ae016460fe9c9914f",
+    url = "https://github.com/bazelbuild/rules_closure/archive/08039ba8ca59f64248bb3b6ae016460fe9c9914f.tar.gz",
 )
 
 # File is specific to Polymer and copied from the Closure Github -- should be
@@ -19,6 +26,10 @@ http_file(
     sha256 = "5a589bdba674e1fec7188e9251c8624ebf2d4d969beb6635f9148f420d1e08b1",
     url = "https://raw.githubusercontent.com/google/closure-compiler/775609aad61e14aef289ebec4bfc09ad88877f9e/contrib/externs/polymer-1.0.js",
 )
+
+load("@bazel_skylib//:lib.bzl", "versions")
+
+versions.check(minimum_bazel_version = "0.7.0")
 
 load("@io_bazel_rules_closure//closure:defs.bzl", "closure_repositories")
 
@@ -96,22 +107,22 @@ maven_jar(
 
 maven_jar(
     name = "servlet_api_3_1",
-    artifact = "org.apache.tomcat:tomcat-servlet-api:8.0.24",
-    sha1 = "5d9e2e895e3111622720157d0aa540066d5fce3a",
+    artifact = "org.apache.tomcat:tomcat-servlet-api:8.5.23",
+    sha1 = "021a212688ec94fe77aff74ab34cc74f6f940e60",
 )
 
-GWT_VERS = "2.8.1"
+GWT_VERS = "2.8.2"
 
 maven_jar(
     name = "user",
     artifact = "com.google.gwt:gwt-user:" + GWT_VERS,
-    sha1 = "9a13fbee70848f1f1cddd3ae33ad180af3392d9e",
+    sha1 = "a2b9be2c996a658c4e009ba652a9c6a81c88a797",
 )
 
 maven_jar(
     name = "dev",
     artifact = "com.google.gwt:gwt-dev:" + GWT_VERS,
-    sha1 = "c7e88c07e9cda90cc623b4451d0d9713ae03aa53",
+    sha1 = "7a87e060bbf129386b7ae772459fb9f87297c332",
 )
 
 maven_jar(
@@ -123,9 +134,9 @@ maven_jar(
 
 maven_jar(
     name = "jsinterop_annotations",
-    artifact = "com.google.jsinterop:jsinterop-annotations:1.0.0",
-    sha1 = "23c3a3c060ffe4817e67673cc8294e154b0a4a95",
-    src_sha1 = "5d7c478efbfccc191430d7c118d7bd2635e43750",
+    artifact = "com.google.jsinterop:jsinterop-annotations:1.0.2",
+    sha1 = "abd7319f53d018e11108a88f599bd16492448dd2",
+    src_sha1 = "33716f8aef043f2f02b78ab4a1acda6cd90a7602",
 )
 
 maven_jar(
@@ -175,8 +186,8 @@ maven_jar(
 
 maven_jar(
     name = "gson",
-    artifact = "com.google.code.gson:gson:2.8.0",
-    sha1 = "c4ba5371a29ac9b2ad6129b1d39ea38750043eff",
+    artifact = "com.google.code.gson:gson:2.8.2",
+    sha1 = "3edcfe49d2c6053a70a2a47e4e1c2f94998a49cf",
 )
 
 maven_jar(
@@ -188,20 +199,8 @@ maven_jar(
 
 maven_jar(
     name = "protobuf",
-    artifact = "com.google.protobuf:protobuf-java:3.0.0-beta-2",
-    sha1 = "de80fe047052445869b96f6def6baca7182c95af",
-)
-
-maven_jar(
-    name = "joda_time",
-    artifact = "joda-time:joda-time:2.9.9",
-    sha1 = "f7b520c458572890807d143670c9b24f4de90897",
-)
-
-maven_jar(
-    name = "joda_convert",
-    artifact = "org.joda:joda-convert:1.8.1",
-    sha1 = "675642ac208e0b741bc9118dcbcae44c271b992a",
+    artifact = "com.google.protobuf:protobuf-java:3.4.0",
+    sha1 = "b32aba0cbe737a4ca953f71688725972e3ee927c",
 )
 
 load("//lib:guava.bzl", "GUAVA_VERSION", "GUAVA_BIN_SHA1")
@@ -213,9 +212,9 @@ maven_jar(
 )
 
 maven_jar(
-    name = "velocity",
-    artifact = "org.apache.velocity:velocity:1.7",
-    sha1 = "2ceb567b8f3f21118ecdec129fe1271dbc09aa7a",
+    name = "j2objc",
+    artifact = "com.google.j2objc:j2objc-annotations:1.1",
+    sha1 = "ed28ded51a8b1c6b112568def5f4b455e6809019",
 )
 
 maven_jar(
@@ -286,16 +285,11 @@ maven_jar(
     sha1 = "4b95f4897fa13f2cd904aee711aeafc0c5295cd8",
 )
 
-maven_jar(
-    name = "commons_collections",
-    artifact = "commons-collections:commons-collections:3.2.2",
-    sha1 = "8ad72fe39fa8c91eaaf12aadb21e0c3661fe26d5",
-)
-
+# When upgrading commons-compress, also upgrade tukaani-xz
 maven_jar(
     name = "commons_compress",
-    artifact = "org.apache.commons:commons-compress:1.13",
-    sha1 = "15c5e9584200122924e50203ae210b57616b75ee",
+    artifact = "org.apache.commons:commons-compress:1.15",
+    sha1 = "b686cd04abaef1ea7bc5e143c080563668eec17e",
 )
 
 maven_jar(
@@ -306,8 +300,8 @@ maven_jar(
 
 maven_jar(
     name = "commons_lang3",
-    artifact = "org.apache.commons:commons-lang3:3.3.2",
-    sha1 = "90a3822c38ec8c996e84c16a3477ef632cbc87a3",
+    artifact = "org.apache.commons:commons-lang3:3.6",
+    sha1 = "9d28a6b23650e8a7e9063c04588ace6cf7012c17",
 )
 
 maven_jar(
@@ -324,14 +318,8 @@ maven_jar(
 
 maven_jar(
     name = "commons_net",
-    artifact = "commons-net:commons-net:3.5",
-    sha1 = "342fc284019f590e1308056990fdb24a08f06318",
-)
-
-maven_jar(
-    name = "commons_oro",
-    artifact = "oro:oro:2.0.8",
-    sha1 = "5592374f834645c4ae250f4c9fbb314c9369d698",
+    artifact = "commons-net:commons-net:3.6",
+    sha1 = "b71de00508dcb078d2b24b5fa7e538636de9b3da",
 )
 
 maven_jar(
@@ -342,8 +330,8 @@ maven_jar(
 
 maven_jar(
     name = "automaton",
-    artifact = "dk.brics.automaton:automaton:1.11-8",
-    sha1 = "6ebfa65eb431ff4b715a23be7a750cbc4cc96d0f",
+    artifact = "dk.brics:automaton:1.12-1",
+    sha1 = "959a0c62f9a5c2309e0ad0b0589c74d69e101241",
 )
 
 maven_jar(
@@ -364,34 +352,34 @@ maven_jar(
     sha1 = "2e35862b0435c1b027a21f3d6eecbe50e6e08d54",
 )
 
-GREENMAIL_VERS = "1.5.3"
+GREENMAIL_VERS = "1.5.5"
 
 maven_jar(
     name = "greenmail",
     artifact = "com.icegreen:greenmail:" + GREENMAIL_VERS,
-    sha1 = "afabf8178312f7f220f74f1558e457bf54fa4253",
+    sha1 = "9ea96384ad2cb8118c22f493b529eb72c212691c",
 )
 
-MAIL_VERS = "1.5.6"
+MAIL_VERS = "1.6.0"
 
 maven_jar(
     name = "mail",
     artifact = "com.sun.mail:javax.mail:" + MAIL_VERS,
-    sha1 = "ab5daef2f881c42c8e280cbe918ec4d7fdfd7efe",
+    sha1 = "a055c648842c4954c1f7db7254f45d9ad565e278",
 )
 
-MIME4J_VERS = "0.8.0"
+MIME4J_VERS = "0.8.1"
 
 maven_jar(
     name = "mime4j_core",
     artifact = "org.apache.james:apache-mime4j-core:" + MIME4J_VERS,
-    sha1 = "d54f45fca44a2f210569656b4ca3574b42911c95",
+    sha1 = "c62dfe18a3b827a2c626ade0ffba44562ddf3f61",
 )
 
 maven_jar(
     name = "mime4j_dom",
     artifact = "org.apache.james:apache-mime4j-dom:" + MIME4J_VERS,
-    sha1 = "6720c93d14225c3e12c4a69768a0370c80e376a3",
+    sha1 = "f2d653c617004193f3350330d907f77b60c88c56",
 )
 
 maven_jar(
@@ -400,50 +388,52 @@ maven_jar(
     sha1 = "5e3bda828a80c7a21dfbe2308d1755759c2fd7b4",
 )
 
-OW2_VERS = "5.1"
+OW2_VERS = "6.0"
 
 maven_jar(
     name = "ow2_asm",
     artifact = "org.ow2.asm:asm:" + OW2_VERS,
-    sha1 = "5ef31c4fe953b1fd00b8a88fa1d6820e8785bb45",
+    sha1 = "bc6fa6b19424bb9592fe43bbc20178f92d403105",
 )
 
 maven_jar(
     name = "ow2_asm_analysis",
     artifact = "org.ow2.asm:asm-analysis:" + OW2_VERS,
-    sha1 = "6d1bf8989fc7901f868bee3863c44f21aa63d110",
+    sha1 = "dd1cc1381a970800268160203aae2d3784da779b",
 )
 
 maven_jar(
     name = "ow2_asm_commons",
     artifact = "org.ow2.asm:asm-commons:" + OW2_VERS,
-    sha1 = "25d8a575034dd9cfcb375a39b5334f0ba9c8474e",
+    sha1 = "f256fd215d8dd5a4fa2ab3201bf653de266ed4ec",
 )
 
 maven_jar(
     name = "ow2_asm_tree",
     artifact = "org.ow2.asm:asm-tree:" + OW2_VERS,
-    sha1 = "87b38c12a0ea645791ead9d3e74ae5268d1d6c34",
+    sha1 = "a624f1a6e4e428dcd680a01bab2d4c56b35b18f0",
 )
 
 maven_jar(
     name = "ow2_asm_util",
     artifact = "org.ow2.asm:asm-util:" + OW2_VERS,
-    sha1 = "b60e33a6bd0d71831e0c249816d01e6c1dd90a47",
+    sha1 = "430b2fc839b5de1f3643b528853d5cf26096c1de",
 )
 
 maven_jar(
     name = "auto_value",
-    artifact = "com.google.auto.value:auto-value:1.4.1",
-    sha1 = "8172ebbd7970188aff304c8a420b9f17168f6f48",
+    artifact = "com.google.auto.value:auto-value:1.5.3",
+    sha1 = "514df6a7c7938de35c7f68dc8b8f22df86037f38",
 )
 
+# Transitive dependency of commons-compress
 maven_jar(
     name = "tukaani_xz",
-    artifact = "org.tukaani:xz:1.4",
-    sha1 = "18a9a2ce6abf32ea1b5fd31dae5210ad93f4e5e3",
+    artifact = "org.tukaani:xz:1.6",
+    sha1 = "05b6f921f1810bdf90e25471968f741f87168b64",
 )
 
+# When upgrading Lucene, make sure it's compatible with Elasticsearch
 LUCENE_VERS = "5.5.4"
 
 maven_jar(
@@ -581,17 +571,17 @@ maven_jar(
 
 maven_jar(
     name = "blame_cache",
-    artifact = "com/google/gitiles:blame-cache:0.2-2",
+    artifact = "com/google/gitiles:blame-cache:0.2-5",
     attach_source = False,
     repository = GERRIT,
-    sha1 = "ac8693b319b3e70506fb27df1b77b598cfdcd00f",
+    sha1 = "50861b114350c598579ba66f99285e692e3c8d45",
 )
 
 # Keep this version of Soy synchronized with the version used in Gitiles.
 maven_jar(
     name = "soy",
-    artifact = "com.google.template:soy:2017-04-23",
-    sha1 = "52f32a5a3801ab97e0909373ef7f73a3460d0802",
+    artifact = "com.google.template:soy:2018-01-03",
+    sha1 = "62089a55675f338bdfb41fba1b29fe610f654b4d",
 )
 
 maven_jar(
@@ -608,10 +598,11 @@ maven_jar(
 
 maven_jar(
     name = "dropwizard_core",
-    artifact = "io.dropwizard.metrics:metrics-core:3.2.2",
-    sha1 = "cd9886f498ee2ab2d994f0c779e5553b2c450416",
+    artifact = "io.dropwizard.metrics:metrics-core:3.2.5",
+    sha1 = "ea2316646e9787c5b2d14ca97f4ef7ad5c6b94e9",
 )
 
+# When updading Bouncy Castle, also update it in bazlets.
 BC_VERS = "1.57"
 
 maven_jar(
@@ -636,15 +627,15 @@ maven_jar(
 # https://issues.apache.org/jira/browse/SSHD-736
 maven_jar(
     name = "sshd",
-    artifact = "org.apache.sshd:sshd-core:1.4.0",
+    artifact = "org.apache.sshd:sshd-core:1.6.0",
     exclude = ["META-INF/services/java.nio.file.spi.FileSystemProvider"],
-    sha1 = "c8f3d7457fc9979d1b9ec319f0229b89793c8e56",
+    sha1 = "548e2da643e88cda9d313efb2564a74f9943e491",
 )
 
 maven_jar(
     name = "eddsa",
-    artifact = "net.i2p.crypto:eddsa:0.1.0",
-    sha1 = "8f5a3b165164e222da048d8136b21428ee0b9122",
+    artifact = "net.i2p.crypto:eddsa:0.2.0",
+    sha1 = "0856a92559c4daf744cb27c93cd8b7eb1f8c4780",
 )
 
 maven_jar(
@@ -715,18 +706,18 @@ maven_jar(
     sha1 = "4785a3c21320980282f9f33d0d1264a69040538f",
 )
 
-TRUTH_VERS = "0.32"
+TRUTH_VERS = "0.36"
 
 maven_jar(
     name = "truth",
     artifact = "com.google.truth:truth:" + TRUTH_VERS,
-    sha1 = "e996fb4b41dad04365112786796c945f909cfdf7",
+    sha1 = "7485219d2c1d341097a19382c02bde07e69ff5d2",
 )
 
 maven_jar(
     name = "truth-java8-extension",
     artifact = "com.google.truth.extensions:truth-java8-extension:" + TRUTH_VERS,
-    sha1 = "2862787ce34cb6f385ada891e36ec7f9e7bd0902",
+    sha1 = "dcc60988c8f9a051840766ef192a2ef41e7992f1",
 )
 
 # When bumping the easymock version number, make sure to also move powermock to a compatible version
@@ -788,8 +779,8 @@ maven_jar(
 
 maven_jar(
     name = "javassist",
-    artifact = "org.javassist:javassist:3.20.0-GA",
-    sha1 = "a9cbcdfb7e9f86fbc74d3afae65f2248bfbf82a0",
+    artifact = "org.javassist:javassist:3.22.0-GA",
+    sha1 = "3e83394258ae2089be7219b971ec21a8288528ad",
 )
 
 maven_jar(
@@ -883,13 +874,13 @@ maven_jar(
 maven_jar(
     name = "codemirror_minified",
     artifact = "org.webjars.npm:codemirror-minified:" + CM_VERSION,
-    sha1 = "a62e6dc43acc09df962edeb8013c987da7739e7a",
+    sha1 = "f84c178b11a188f416b4380bfb2b24f126453d28",
 )
 
 maven_jar(
     name = "codemirror_original",
     artifact = "org.webjars.npm:codemirror:" + CM_VERSION,
-    sha1 = "7a5ae457aa3bc0023d21bc75793bac86b83b0c51",
+    sha1 = "5a1f6c10d5aef0b9d2ce513dcc1e2657e4af730d",
 )
 
 maven_jar(
@@ -907,20 +898,21 @@ maven_jar(
 
 maven_jar(
     name = "asciidoctor",
-    artifact = "org.asciidoctor:asciidoctorj:1.5.4.1",
-    sha1 = "f7ddfb2bbed2f8da3f9ad0d1a5514f04b4274a5a",
+    artifact = "org.asciidoctor:asciidoctorj:1.5.6",
+    sha1 = "bb757d4b8b0f8438ce2ed781f6688cc6c01d9237",
 )
 
 maven_jar(
     name = "jruby",
-    artifact = "org.jruby:jruby-complete:9.1.5.0",
-    sha1 = "00d0003e99da3c4d830b12c099691ce910c84e39",
+    artifact = "org.jruby:jruby-complete:9.1.13.0",
+    sha1 = "8903bf42272062e87a7cbc1d98919e0729a9939f",
 )
 
+# When upgrading Elasticsearch, make sure it's compatible with Lucene
 maven_jar(
     name = "elasticsearch",
-    artifact = "org.elasticsearch:elasticsearch:2.4.5",
-    sha1 = "daafe48ae06592029a2fedca1fe2ac0f5eec3185",
+    artifact = "org.elasticsearch:elasticsearch:2.4.6",
+    sha1 = "d2954e1173a608a9711f132d1768a676a8b1fb81",
 )
 
 # Java REST client for Elasticsearch.
@@ -936,6 +928,18 @@ maven_jar(
     name = "jest",
     artifact = "io.searchbox:jest:" + JEST_VERSION,
     sha1 = "e2a604a584e6633545ac6b1fe99ef888ab96dae9",
+)
+
+maven_jar(
+    name = "joda_time",
+    artifact = "joda-time:joda-time:2.9.9",
+    sha1 = "f7b520c458572890807d143670c9b24f4de90897",
+)
+
+maven_jar(
+    name = "joda_convert",
+    artifact = "org.joda:joda-convert:1.8.1",
+    sha1 = "675642ac208e0b741bc9118dcbcae44c271b992a",
 )
 
 maven_jar(
@@ -974,24 +978,24 @@ maven_jar(
     sha1 = "1c12d070e602efd8021891cdd7fd18bc129372d4",
 )
 
-JACKSON_VERSION = "2.6.6"
+JACKSON_VERSION = "2.8.9"
 
 maven_jar(
     name = "jackson_core",
     artifact = "com.fasterxml.jackson.core:jackson-core:" + JACKSON_VERSION,
-    sha1 = "02eb801df67aacaf5b1deb4ac626e1964508e47b",
+    sha1 = "569b1752705da98f49aabe2911cc956ff7d8ed9d",
 )
 
 maven_jar(
     name = "jackson_dataformat_smile",
     artifact = "com.fasterxml.jackson.dataformat:jackson-dataformat-smile:" + JACKSON_VERSION,
-    sha1 = "ccbfc948748ed2754a58c1af9e0a02b5cc1aed69",
+    sha1 = "d36cbae6b06ac12fca16fda403759e479316141b",
 )
 
 maven_jar(
     name = "jackson_dataformat_cbor",
     artifact = "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:" + JACKSON_VERSION,
-    sha1 = "34c7b7ff495fc6b049612bdc9db0900a68e112f8",
+    sha1 = "93242092324cad33d777e06c0515e40a6b862659",
 )
 
 maven_jar(
@@ -1033,8 +1037,8 @@ npm_binary(
 bower_archive(
     name = "iron-autogrow-textarea",
     package = "polymerelements/iron-autogrow-textarea",
-    sha1 = "b9b6874c9a2b5be435557a827ff8bd6661672ee3",
-    version = "1.0.12",
+    sha1 = "68f0ece9b1e56ac26f8ce31d9938c504f6951bca",
+    version = "2.1.0",
 )
 
 bower_archive(
@@ -1054,8 +1058,8 @@ bower_archive(
 bower_archive(
     name = "iron-dropdown",
     package = "polymerelements/iron-dropdown",
-    sha1 = "63e3d669a09edaa31c4f05afc76b53b919ef0595",
-    version = "1.4.0",
+    sha1 = "ac96fe31cdf203a63426fa75131b43c98c0597d3",
+    version = "1.5.5",
 )
 
 bower_archive(
@@ -1068,15 +1072,43 @@ bower_archive(
 bower_archive(
     name = "iron-overlay-behavior",
     package = "polymerelements/iron-overlay-behavior",
-    sha1 = "83181085fda59446ce74fd0d5ca30c223f38ee4a",
-    version = "1.7.6",
+    sha1 = "74cda9d7bf98e7a5e5004bc7ebdb6d208d49e11e",
+    version = "2.0.0",
 )
 
 bower_archive(
     name = "iron-selector",
     package = "polymerelements/iron-selector",
-    sha1 = "c57235dfda7fbb987c20ad0e97aac70babf1a1bf",
-    version = "1.5.2",
+    sha1 = "e0ee46c28523bf17730318c3b481a8ed4331c3b2",
+    version = "2.0.0",
+)
+
+bower_archive(
+    name = "paper-button",
+    package = "polymerelements/paper-button",
+    sha1 = "3b01774f58a8085d3c903fc5a32944b26ab7be72",
+    version = "2.0.0",
+)
+
+bower_archive(
+    name = "paper-input",
+    package = "polymerelements/paper-input",
+    sha1 = "6c934805e80ab201e143406edc73ea0ef35abf80",
+    version = "1.1.18",
+)
+
+bower_archive(
+    name = "iron-icon",
+    package = "polymerelements/iron-icon",
+    sha1 = "7da49a0d33cd56017740e0dbcf41d2b71532023f",
+    version = "2.0.0",
+)
+
+bower_archive(
+    name = "iron-iconset-svg",
+    package = "polymerelements/iron-iconset-svg",
+    sha1 = "4d0c406239cad2ff2975c6dd95fa189de0fe6b50",
+    version = "2.1.0",
 )
 
 bower_archive(
@@ -1094,10 +1126,38 @@ bower_archive(
 )
 
 bower_archive(
+    name = "paper-item",
+    package = "polymerelements/paper-item",
+    sha1 = "803273ceb9ffebec8ecc9373ea638af4cd34af58",
+    version = "1.1.4",
+)
+
+bower_archive(
+    name = "paper-listbox",
+    package = "polymerelements/paper-listbox",
+    sha1 = "ccc1a90ab0a96878c7bf7c9c4cfe47c85b09c8e3",
+    version = "2.0.0",
+)
+
+bower_archive(
+    name = "paper-toggle-button",
+    package = "polymerelements/paper-toggle-button",
+    sha1 = "4a2edbdb52c4531d39fe091f12de650bccda270f",
+    version = "1.2.0",
+)
+
+bower_archive(
     name = "polymer",
     package = "polymer/polymer",
-    sha1 = "2c7dd638d55ea91242525139cba18a308b9426d5",
-    version = "1.9.1",
+    sha1 = "62ce80a5079c1b97f6c5c6ebf6b350e741b18b9c",
+    version = "1.11.0",
+)
+
+bower_archive(
+    name = "polymer-resin",
+    package = "polymer/polymer-resin",
+    sha1 = "93ac118f2b9209cfbfd6dc8022d9492743d17f24",
+    version = "1.2.7",
 )
 
 bower_archive(
@@ -1105,6 +1165,13 @@ bower_archive(
     package = "polymerlabs/promise-polyfill",
     sha1 = "a3b598c06cbd7f441402e666ff748326030905d6",
     version = "1.0.0",
+)
+
+bower_archive(
+    name = "codemirror-minified",
+    package = "Dominator008/codemirror-minified",
+    sha1 = "51ba8d9256c63ce95238253c5b2eb7d5b12d6ed3",
+    version = "5.28.0",
 )
 
 # bower test stuff

@@ -14,11 +14,15 @@
 (function() {
   'use strict';
 
+  const ERR_EDIT_LOADED = 'You cannot change the review status of an edit.';
+
   // Maximum length for patch set descriptions.
   const PATCH_DESC_MAX_LENGTH = 500;
   const WARN_SHOW_ALL_THRESHOLD = 1000;
-  const COMMIT_MESSAGE_PATH = '/COMMIT_MSG';
-  const MERGE_LIST_PATH = '/MERGE_LIST';
+  const LOADING_DEBOUNCE_INTERVAL = 100;
+
+  const SIZE_BAR_MAX_WIDTH = 50;
+  const SIZE_BAR_MIN_WIDTH = 1.5;
 
   const FileStatus = {
     A: 'Added',
@@ -31,16 +35,21 @@
   Polymer({
     is: 'gr-file-list',
 
+    /**
+     * Fired when a draft refresh should get triggered
+     *
+     * @event reload-drafts
+     */
+
     properties: {
-      patchRange: {
-        type: Object,
-        observer: '_updateSelected',
-      },
+      /** @type {?} */
+      patchRange: Object,
       patchNum: String,
       changeNum: String,
-      comments: Object,
+      /** @type {?} */
+      changeComments: Object,
       drafts: Object,
-      revisions: Object,
+      revisions: Array,
       projectConfig: Object,
       selectedIndex: {
         type: Number,
@@ -50,11 +59,21 @@
         type: Object,
         value() { return document.body; },
       },
+      /** @type {?} */
       change: Object,
       diffViewMode: {
         type: String,
         notify: true,
         observer: '_updateDiffPreferences',
+      },
+      editMode: {
+        type: Boolean,
+        observer: '_editModeChanged',
+      },
+      filesExpanded: {
+        type: String,
+        value: GrFileListConstants.FilesExpandedState.NONE,
+        notify: true,
       },
       _files: {
         type: Array,
@@ -69,12 +88,12 @@
         type: Array,
         value() { return []; },
       },
-      _diffAgainst: String,
       diffPrefs: {
         type: Object,
         notify: true,
         observer: '_updateDiffPreferences',
       },
+      /** @type {?} */
       _userPrefs: Object,
       _localPrefs: Object,
       _showInlineDiffs: Boolean,
@@ -82,6 +101,7 @@
         type: Number,
         notify: true,
       },
+      /** @type {?} */
       _patchChange: {
         type: Object,
         computed: '_calculatePatchChange(_files)',
@@ -99,23 +119,32 @@
         type: Array,
         computed: '_computeFilesShown(numFilesShown, _files.*)',
       },
-      // Caps the number of files that can be shown and have the 'show diffs' /
-      // 'hide diffs' buttons still be functional.
-      _maxFilesForBulkActions: {
-        type: Number,
-        readOnly: true,
-        value: 225,
-      },
       _expandedFilePaths: {
         type: Array,
         value() { return []; },
       },
       _displayLine: Boolean,
+      _loading: {
+        type: Boolean,
+        observer: '_loadingChanged',
+      },
+      _sizeBarScale: {
+        type: Number,
+        computed: '_computeSizeBarScale(_shownFiles.*)',
+      },
+      _showSizeBars: {
+        type: Boolean,
+        value: true,
+        computed: '_computeShowSizeBars(_userPrefs)',
+      },
     },
 
     behaviors: [
+      Gerrit.AsyncForeachBehavior,
+      Gerrit.DomUtilBehavior,
       Gerrit.KeyboardShortcutBehavior,
       Gerrit.PatchSetBehavior,
+      Gerrit.PathListBehavior,
     ],
 
     observers: [
@@ -136,15 +165,37 @@
       'o': '_handleOKey',
       'n': '_handleNKey',
       'p': '_handlePKey',
+      'r': '_handleRKey',
       'shift+a': '_handleCapitalAKey',
       'esc': '_handleEscKey',
+    },
+
+    listeners: {
+      keydown: '_scopedKeydownHandler',
+    },
+
+    /**
+     * Iron-a11y-keys-behavior catches keyboard events globally. Some keyboard
+     * events must be scoped to a component level (e.g. `enter`) in order to not
+     * override native browser functionality.
+     *
+     * Context: Issue 7277
+     */
+    _scopedKeydownHandler(e) {
+      if (e.keyCode === 13) {
+        // Enter.
+        this._handleOKey(e);
+      }
     },
 
     reload() {
       if (!this.changeNum || !this.patchRange.patchNum) {
         return Promise.resolve();
       }
-      this._collapseAllDiffs();
+
+      this._loading = true;
+
+      this.collapseAllDiffs();
       const promises = [];
 
       promises.push(this._getFiles().then(files => {
@@ -167,10 +218,11 @@
 
       promises.push(this._getPreferences().then(prefs => {
         this._userPrefs = prefs;
-        if (!this.diffViewMode) {
-          this.set('diffViewMode', prefs.default_diff_view);
-        }
       }));
+
+      return Promise.all(promises).then(() => {
+        this._loading = false;
+      });
     },
 
     get diffs() {
@@ -214,10 +266,6 @@
       return this.$.restAPI.getPreferences();
     },
 
-    _computePatchSetDisabled(patchNum, currentPatchNum) {
-      return parseInt(patchNum, 10) >= parseInt(currentPatchNum, 10);
-    },
-
     _togglePathExpanded(path) {
       // Is the path in the list of expanded diffs? IF so remove it, otherwise
       // add it to the list.
@@ -233,25 +281,13 @@
       this._togglePathExpanded(this._files[index].__path);
     },
 
-    _handlePatchChange(e) {
-      const patchRange = Object.assign({}, this.patchRange);
-      patchRange.basePatchNum = Polymer.dom(e).rootTarget.value;
-
-      Gerrit.Nav.navigateToChange(this.change, patchRange.patchNum,
-          this._getBasePatchNum(patchRange));
-    },
-
     _updateDiffPreferences() {
       if (!this.diffs.length) { return; }
       // Re-render all expanded diffs sequentially.
       const timerName = 'Update ' + this._expandedFilePaths.length +
           ' diffs with new prefs';
       this._renderInOrder(this._expandedFilePaths, this.diffs,
-          this._expandedFilePaths.length)
-          .then(() => {
-            this.$.reporting.timeEnd(timerName);
-            this.$.diffCursor.handleDiffUpdate();
-          });
+          this._expandedFilePaths.length, timerName);
     },
 
     _forEachDiff(fn) {
@@ -261,7 +297,7 @@
       }
     },
 
-    _expandAllDiffs(e) {
+    expandAllDiffs() {
       this._showInlineDiffs = true;
 
       // Find the list of paths that are in the file list, but not in the
@@ -278,89 +314,75 @@
       this.splice(...['_expandedFilePaths', 0, 0].concat(newPaths));
     },
 
-    _collapseAllDiffs(e) {
+    collapseAllDiffs() {
       this._showInlineDiffs = false;
       this._expandedFilePaths = [];
+      this.filesExpanded = this._computeExpandedFiles(
+          this._expandedFilePaths.length, this._files.length);
       this.$.diffCursor.handleDiffUpdate();
     },
 
-    _computeCommentsString(comments, patchNum, path) {
-      return this._computeCountString(comments, patchNum, path, 'comment');
-    },
-
-    _computeDraftsString(drafts, patchNum, path) {
-      return this._computeCountString(drafts, patchNum, path, 'draft');
-    },
-
-    _computeDraftsStringMobile(drafts, patchNum, path) {
-      const draftCount = this._computeCountString(drafts, patchNum, path);
-      return draftCount ? draftCount + 'd' : '';
-    },
-
-    _computeCommentsStringMobile(comments, patchNum, path) {
-      const commentCount = this._computeCountString(comments, patchNum, path);
-      return commentCount ? commentCount + 'c' : '';
-    },
-
-    getCommentsForPath(comments, patchNum, path) {
-      return (comments[path] || []).filter(c => {
-        return parseInt(c.patch_set, 10) === parseInt(patchNum, 10);
-      });
-    },
-
-    _computeCountString(comments, patchNum, path, opt_noun) {
-      if (!comments) { return ''; }
-
-      const patchComments = this.getCommentsForPath(comments, patchNum, path);
-      const num = patchComments.length;
-      if (num === 0) { return ''; }
-      if (!opt_noun) { return num; }
-      const output = num + ' ' + opt_noun + (num > 1 ? 's' : '');
-      return output;
-    },
-
     /**
-     * Computes a string counting the number of unresolved comment threads in a
-     * given file and path.
+     * Computes a string with the number of comments and unresolved comments.
      *
-     * @param {Object} comments
-     * @param {Object} drafts
+     * @param {!Object} changeComments
      * @param {number} patchNum
      * @param {string} path
      * @return {string}
      */
-    _computeUnresolvedString(comments, drafts, patchNum, path) {
-      const unresolvedNum = this.computeUnresolvedNum(
-          comments, drafts, patchNum, path);
-      return unresolvedNum === 0 ? '' : '(' + unresolvedNum + ' unresolved)';
+    _computeCommentsString(changeComments, patchNum, path) {
+      const unresolvedCount = changeComments.computeUnresolvedNum(patchNum,
+          path);
+      const commentCount = changeComments.computeCommentCount(patchNum, path);
+      const commentString = GrCountStringFormatter.computePluralString(
+          commentCount, 'comment');
+      const unresolvedString = GrCountStringFormatter.computeString(
+          unresolvedCount, 'unresolved');
+
+      return commentString +
+          // Add a space if both comments and unresolved
+          (commentString && unresolvedString ? ' ' : '') +
+          // Add parentheses around unresolved if it exists.
+          (unresolvedString ? `(${unresolvedString})` : '');
     },
 
-    computeUnresolvedNum(comments, drafts, patchNum, path) {
-      comments = this.getCommentsForPath(comments, patchNum, path);
-      drafts = this.getCommentsForPath(drafts, patchNum, path);
-      comments = comments.concat(drafts);
+    /**
+     * Computes a string with the number of drafts.
+     *
+     * @param {!Object} changeComments
+     * @param {number} patchNum
+     * @param {string} path
+     * @return {string}
+     */
+    _computeDraftsString(changeComments, patchNum, path) {
+      const draftCount = changeComments.computeDraftCount(patchNum, path);
+      return GrCountStringFormatter.computePluralString(draftCount, 'draft');
+    },
 
-      // Create an object where every comment ID is the key of an unresolved
-      // comment.
+    /**
+     * Computes a shortened string with the number of drafts.
+     *
+     * @param {!Object} changeComments
+     * @param {number} patchNum
+     * @param {string} path
+     * @return {string}
+     */
+    _computeDraftsStringMobile(changeComments, patchNum, path) {
+      const draftCount = changeComments.computeDraftCount(patchNum, path);
+      return GrCountStringFormatter.computeShortString(draftCount, 'd');
+    },
 
-      const idMap = comments.reduce((acc, comment) => {
-        if (comment.unresolved) {
-          acc[comment.id] = true;
-        }
-        return acc;
-      }, {});
-
-      // Set false for the comments that are marked as parents.
-      for (const comment of comments) {
-        idMap[comment.in_reply_to] = false;
-      }
-
-      // The unresolved comments are the comments that still have true.
-      const unresolvedLeaves = Object.keys(idMap).filter(key => {
-        return idMap[key];
-      });
-
-      return unresolvedLeaves.length;
+    /**
+     * Computes a shortened string with the number of comments.
+     *
+     * @param {!Object} changeComments
+     * @param {number} patchNum
+     * @param {string} path
+     * @return {string}
+     */
+    _computeCommentsStringMobile(changeComments, patchNum, path) {
+      const commentCount = changeComments.computeCommentCount(patchNum, path);
+      return GrCountStringFormatter.computeShortString(commentCount, 'c');
     },
 
     _computeReviewed(file, _reviewed) {
@@ -368,6 +390,10 @@
     },
 
     _reviewFile(path) {
+      if (this.editMode) {
+        this.fire('show-alert', {message: ERR_EDIT_LOADED});
+        return;
+      }
       const index = this._reviewed.indexOf(path);
       const reviewed = index !== -1;
       if (reviewed) {
@@ -389,18 +415,14 @@
     },
 
     _getReviewedFiles() {
+      if (this.editMode) { return Promise.resolve([]); }
       return this.$.restAPI.getReviewedFiles(this.changeNum,
           this.patchRange.patchNum);
     },
 
     _getFiles() {
       return this.$.restAPI.getChangeFilesAsSpeciallySortedArray(
-          this.changeNum, this.patchRange).then(files => {
-            // Append UI-specific properties.
-            return files.map(file => {
-              return file;
-            });
-          });
+          this.changeNum, this.patchRange);
     },
 
     /**
@@ -414,33 +436,19 @@
         row = row.parentElement;
       }
       const path = row.dataset.path;
-
       // Handle checkbox mark as reviewed.
-      if (e.target.classList.contains('reviewed')) {
+      if (e.target.classList.contains('markReviewed')) {
+        e.preventDefault();
         return this._reviewFile(path);
       }
 
-      // If the user prefers to expand inline diffs rather than opening the diff
-      // view, intercept the click event.
-      if (!path || e.detail.sourceEvent.metaKey ||
-          e.detail.sourceEvent.ctrlKey) {
-        return;
-      }
+      // If a path cannot be interpreted from the click target (meaning it's not
+      // somewhere in the row, e.g. diff content) or if the user clicked the
+      // link, defer to the native behavior.
+      if (!path || this.descendedFromClass(e.target, 'pathLink')) { return; }
 
-      if (e.target.dataset.expand ||
-          this._userPrefs && this._userPrefs.expand_inline_diffs) {
-        e.preventDefault();
-        this._togglePathExpanded(path);
-        return;
-      }
-
-      // If we clicked the row but not the link, then simulate a click on the
-      // anchor.
-      if (e.target.classList.contains('path') ||
-          e.target.classList.contains('oldPath')) {
-        const a = row.querySelector('a');
-        if (a) { a.click(); }
-      }
+      e.preventDefault();
+      this._togglePathExpanded(path);
     },
 
     _handleShiftLeftKey(e) {
@@ -480,11 +488,14 @@
         return;
       }
 
-      e.preventDefault();
       if (this._showInlineDiffs) {
+        e.preventDefault();
         this.$.diffCursor.moveDown();
         this._displayLine = true;
       } else {
+        // Down key
+        if (this.getKeyboardEvent(e).keyCode === 40) { return; }
+        e.preventDefault();
         this.$.fileCursor.next();
         this.selectedIndex = this.$.fileCursor.index;
       }
@@ -495,11 +506,14 @@
         return;
       }
 
-      e.preventDefault();
       if (this._showInlineDiffs) {
+        e.preventDefault();
         this.$.diffCursor.moveUp();
         this._displayLine = true;
       } else {
+        // Up key
+        if (this.getKeyboardEvent(e).keyCode === 38) { return; }
+        e.preventDefault();
         this.$.fileCursor.previous();
         this.selectedIndex = this.$.fileCursor.index;
       }
@@ -539,16 +553,14 @@
     _handleOKey(e) {
       if (this.shouldSuppressKeyboardShortcut(e) ||
           this.modifierPressed(e)) { return; }
-
       e.preventDefault();
+
       if (this._showInlineDiffs) {
         this._openCursorFile();
-      } else if (this._userPrefs && this._userPrefs.expand_inline_diffs) {
-        if (this.$.fileCursor.index === -1) { return; }
-        this._togglePathExpandedByIndex(this.$.fileCursor.index);
-      } else {
-        this._openSelectedFile();
+        return;
       }
+
+      this._openSelectedFile();
     },
 
     _handleNKey(e) {
@@ -581,6 +593,16 @@
       }
     },
 
+    _handleRKey(e) {
+      if (this.shouldSuppressKeyboardShortcut(e) || this.modifierPressed(e)) {
+        return;
+      }
+
+      e.preventDefault();
+      if (!this._files[this.$.fileCursor.index]) { return; }
+      this._reviewFile(this._files[this.$.fileCursor.index].__path);
+    },
+
     _handleCapitalAKey(e) {
       if (this.shouldSuppressKeyboardShortcut(e)) { return; }
 
@@ -592,18 +614,21 @@
 
     _toggleInlineDiffs() {
       if (this._showInlineDiffs) {
-        this._collapseAllDiffs();
+        this.collapseAllDiffs();
       } else {
-        this._expandAllDiffs();
+        this.expandAllDiffs();
       }
     },
 
     _openCursorFile() {
       const diff = this.$.diffCursor.getTargetDiffElement();
       Gerrit.Nav.navigateToDiff(this.change, diff.path,
-          diff.patchRange.patchNum, this._getBasePatchNum(this.patchRange));
+          diff.patchRange.patchNum, this.patchRange.basePatchNum);
     },
 
+    /**
+     * @param {number=} opt_index
+     */
     _openSelectedFile(opt_index) {
       if (opt_index != null) {
         this.$.fileCursor.setCursorAtIndex(opt_index);
@@ -611,7 +636,7 @@
       if (!this._files[this.$.fileCursor.index]) { return; }
       Gerrit.Nav.navigateToDiff(this.change,
           this._files[this.$.fileCursor.index].__path, this.patchRange.patchNum,
-          this._getBasePatchNum(this.patchRange));
+          this.patchRange.basePatchNum);
     },
 
     _addDraftAtTarget() {
@@ -635,27 +660,8 @@
       return status || 'M';
     },
 
-    _computeDiffURL(change, patchRange, path) {
-      return Gerrit.Nav.getUrlForDiff(change, path, patchRange.patchNum,
-          this._getBasePatchNum(patchRange));
-    },
-
-    _getBasePatchNum(patchRange) {
-      return patchRange.basePatchNum === 'PARENT' ?
-          undefined : patchRange.basePatchNum;
-    },
-
-    _computeFileDisplayName(path) {
-      if (path === COMMIT_MESSAGE_PATH) {
-        return 'Commit message';
-      } else if (path === MERGE_LIST_PATH) {
-        return 'Merge list';
-      }
-      return path;
-    },
-
-    _computeTruncatedFileDisplayName(path) {
-      return util.truncatePath(this._computeFileDisplayName(path));
+    _computeDiffURL(change, patchNum, basePatchNum, path) {
+      return Gerrit.Nav.getUrlForDiff(change, path, patchNum, basePatchNum);
     },
 
     _formatBytes(bytes) {
@@ -684,29 +690,31 @@
       return delta >= 0 ? 'added' : 'removed';
     },
 
+    /**
+     * @param {string} baseClass
+     * @param {string} path
+     */
     _computeClass(baseClass, path) {
       const classes = [baseClass];
-      if (path === COMMIT_MESSAGE_PATH || path === MERGE_LIST_PATH) {
+      if (path === this.COMMIT_MESSAGE_PATH || path === this.MERGE_LIST_PATH) {
         classes.push('invisible');
       }
       return classes.join(' ');
     },
 
-    _computeExpandInlineClass(userPrefs) {
-      return userPrefs.expand_inline_diffs ? 'expandInline' : '';
-    },
-
     _computePathClass(path, expandedFilesRecord) {
-      return this._isFileExpanded(path, expandedFilesRecord) ? 'path expanded' :
-          'path';
+      return this._isFileExpanded(path, expandedFilesRecord) ? 'expanded' : '';
     },
 
-    _computeShowHideText(path, expandedFilesRecord) {
-      return this._isFileExpanded(path, expandedFilesRecord) ? '▼' : '◀';
+    _computeShowHideIcon(path, expandedFilesRecord) {
+      return this._isFileExpanded(path, expandedFilesRecord) ?
+          'gr-icons:expand-less' : 'gr-icons:expand-more';
     },
 
     _computeFilesShown(numFilesShown, files) {
-      return files.base.slice(0, numFilesShown);
+      const filesShown = files.base.slice(0, numFilesShown);
+      this.fire('files-shown-changed', {length: filesShown.length});
+      return filesShown;
     },
 
     _setReviewedFiles(shownFiles, files, reviewedRecord, loggedIn) {
@@ -741,8 +749,8 @@
       this.numFilesShown += this.fileListIncrement;
     },
 
-    _computeFileListButtonHidden(numFilesShown, files) {
-      return numFilesShown >= files.length;
+    _computeFileListControlClass(numFilesShown, files) {
+      return numFilesShown >= files.length ? 'invisible' : '';
     },
 
     _computeIncrementText(numFilesShown, files) {
@@ -771,35 +779,6 @@
       this.numFilesShown = this._files.length;
     },
 
-    _updateSelected(patchRange) {
-      this._diffAgainst = patchRange.basePatchNum;
-    },
-
-    /**
-     * _getDiffViewMode: Get the diff view (side-by-side or unified) based on
-     * the current state.
-     *
-     * The expected behavior is to use the mode specified in the user's
-     * preferences unless they have manually chosen the alternative view.
-     *
-     * Use side-by-side if there is no view mode or preferences.
-     *
-     * @return {String}
-     */
-    _getDiffViewMode(diffViewMode, userPrefs) {
-      if (diffViewMode) {
-        return diffViewMode;
-      } else if (userPrefs) {
-        return this.diffViewMode = userPrefs.default_diff_view;
-      }
-      return 'SIDE_BY_SIDE';
-    },
-
-    _fileListActionsVisible(shownFilesRecord,
-        maxFilesForBulkActions) {
-      return shownFilesRecord.base.length <= maxFilesForBulkActions;
-    },
-
     _computePatchSetDescription(revisions, patchNum) {
       const rev = this.getRevisionByPatchNum(revisions, patchNum);
       return (rev && rev.description) ?
@@ -821,15 +800,33 @@
           detail.path);
     },
 
+    _computeExpandedFiles(expandedCount, totalCount) {
+      if (expandedCount === 0) {
+        return GrFileListConstants.FilesExpandedState.NONE;
+      } else if (expandedCount === totalCount) {
+        return GrFileListConstants.FilesExpandedState.ALL;
+      }
+      return GrFileListConstants.FilesExpandedState.SOME;
+    },
+
     /**
      * Handle splices to the list of expanded file paths. If there are any new
      * entries in the expanded list, then render each diff corresponding in
      * order by waiting for the previous diff to finish before starting the next
      * one.
-     * @param  {splice} record The splice record in the expanded paths list.
+     * @param {!Array} record The splice record in the expanded paths list.
      */
     _expandedPathsChanged(record) {
+      // Clear content for any diffs that are not open so if they get re-opened
+      // the stale content does not flash before it is cleared and reloaded.
+      const collapsedDiffs = this.diffs.filter(diff =>
+          this._expandedFilePaths.indexOf(diff.path) === -1);
+      this._clearCollapsedDiffs(collapsedDiffs);
+
       if (!record) { return; }
+
+      this.filesExpanded = this._computeExpandedFiles(
+          this._expandedFilePaths.length, this._files.length);
 
       // Find the paths introduced by the new index splices:
       const newPaths = record.indexSplices
@@ -845,47 +842,61 @@
       // Required so that the newly created diff view is included in this.diffs.
       Polymer.dom.flush();
 
-      this._renderInOrder(newPaths, this.diffs, newPaths.length)
-          .then(() => {
-            this.$.reporting.timeEnd(timerName);
-            this.$.diffCursor.handleDiffUpdate();
-          });
+      this._renderInOrder(newPaths, this.diffs, newPaths.length, timerName);
       this._updateDiffCursor();
       this.$.diffCursor.handleDiffUpdate();
+    },
+
+    _clearCollapsedDiffs(collapsedDiffs) {
+      for (const diff of collapsedDiffs) {
+        diff.clearDiffContent();
+      }
     },
 
     /**
      * Given an array of paths and a NodeList of diff elements, render the diff
      * for each path in order, awaiting the previous render to complete before
      * continung.
-     * @param  {!Array<!String>} paths
-     * @param  {!NodeList<!GrDiffElement>} diffElements
-     * @param  {Number} initialCount The total number of paths in the pass. This
+     * @param  {!Array<string>} paths
+     * @param  {!NodeList<!Object>} diffElements (GrDiffElement)
+     * @param  {number} initialCount The total number of paths in the pass. This
      *   is used to generate log messages.
+     * @param {string} timerName the timer to stop after the render has
+     *   completed
      * @return {!Promise}
      */
-    _renderInOrder(paths, diffElements, initialCount) {
-      if (!paths.length) {
-        console.log('Finished expanding', initialCount, 'diff(s)');
-        return Promise.resolve();
-      }
-      console.log('Expanding diff', 1 + initialCount - paths.length, 'of',
-          initialCount, ':', paths[0]);
-      const diffElem = this._findDiffByPath(paths[0], diffElements);
-      const promises = [diffElem.reload()];
-      if (this._isLoggedIn) {
-        promises.push(this._reviewFile(paths[0]));
-      }
-      return Promise.all(promises).then(() => {
-        return this._renderInOrder(paths.slice(1), diffElements, initialCount);
+    _renderInOrder(paths, diffElements, initialCount, timerName) {
+      let iter = 0;
+
+      return (new Promise(resolve => {
+        this.fire('reload-drafts', {resolve});
+      })).then(() => {
+        return this.asyncForeach(paths, path => {
+          iter++;
+          console.log('Expanding diff', iter, 'of', initialCount, ':',
+              path);
+          const diffElem = this._findDiffByPath(path, diffElements);
+          diffElem.comments = this.changeComments.getCommentsBySideForPath(
+              path, this.patchRange, this.projectConfig);
+          const promises = [diffElem.reload()];
+          if (this._isLoggedIn) {
+            promises.push(this._reviewFile(path));
+          }
+          return Promise.all(promises);
+        }).then(() => {
+          this._nextRenderParams = null;
+          console.log('Finished expanding', initialCount, 'diff(s)');
+          this.$.reporting.timeEnd(timerName);
+          this.$.diffCursor.handleDiffUpdate();
+        });
       });
     },
 
     /**
      * In the given NodeList of diff elements, find the diff for the given path.
-     * @param  {!String} path
-     * @param  {!NodeList<!GrDiffElement>} diffElements
-     * @return {!GrDiffElement}
+     * @param  {string} path
+     * @param  {!NodeList<!Object>} diffElements (GrDiffElement)
+     * @return {!Object|undefined} (GrDiffElement)
      */
     _findDiffByPath(path, diffElements) {
       for (let i = 0; i < diffElements.length; i++) {
@@ -900,6 +911,74 @@
           this.modifierPressed(e)) { return; }
       e.preventDefault();
       this._displayLine = false;
+    },
+
+    /**
+     * Update the loading class for the file list rows. The update is inside a
+     * debouncer so that the file list doesn't flash gray when the API requests
+     * are reasonably fast.
+     * @param {boolean} loading
+     */
+    _loadingChanged(loading) {
+      this.debounce('loading-change', () => {
+        // Only show set the loading if there have been files loaded to show. In
+        // this way, the gray loading style is not shown on initial loads.
+        this.classList.toggle('loading', loading && !!this._files.length);
+      }, LOADING_DEBOUNCE_INTERVAL);
+    },
+
+    _editModeChanged(editMode) {
+      this.classList.toggle('editMode', editMode);
+    },
+
+    _computeReviewedClass(isReviewed) {
+      return isReviewed ? 'isReviewed' : '';
+    },
+
+    _computeReviewedText(isReviewed) {
+      return isReviewed ? 'MARK UNREVIEWED' : 'MARK REVIEWED';
+    },
+
+    /**
+     * Find the size bar scaling factor by computing the largest value of the
+     * lines_inserted or lines_deleted properties of the visible files.
+     * @return {number|undefined}
+     */
+    _computeSizeBarScale(shownFilesRecord) {
+      if (!shownFilesRecord || !shownFilesRecord.base) { return undefined; }
+      return shownFilesRecord.base
+          .filter(f =>
+              f.__path !== this.COMMIT_MESSAGE_PATH &&
+              f.__path !== this.MERGE_LIST_PATH)
+          .reduce((acc, f) =>
+              Math.max(acc, f.lines_inserted, f.lines_deleted), 0);
+    },
+
+    /**
+     * Compute the width of the size bar for given delta stat and scale.
+     * @param {number} sizeBarScale
+     * @param {number} stat
+     * @return {number} the width of the bar
+     */
+    _computeSizeBarWidth(sizeBarScale, stat) {
+      if (!sizeBarScale || !stat) { return 0; }
+      return Math.max(
+          SIZE_BAR_MIN_WIDTH, SIZE_BAR_MAX_WIDTH * stat / sizeBarScale);
+    },
+
+    _computeShowSizeBars(userPrefs) {
+      return !!userPrefs.size_bar_in_change_table;
+    },
+
+    _computeSizeBarsClass(showSizeBars, path) {
+      let hideClass = '';
+      if (!showSizeBars) {
+        hideClass = 'hide';
+      } else if (path === this.COMMIT_MESSAGE_PATH ||
+          path === this.MERGE_LIST_PATH) {
+        hideClass = 'invisible';
+      }
+      return `sizeBars desktop ${hideClass}`;
     },
   });
 })();

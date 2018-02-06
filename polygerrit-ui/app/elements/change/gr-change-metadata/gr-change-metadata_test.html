@@ -21,6 +21,7 @@ limitations under the License.
 <script src="../../../bower_components/webcomponentsjs/webcomponents-lite.min.js"></script>
 <script src="../../../bower_components/web-component-tester/browser.js"></script>
 <link rel="import" href="../../../test/common-test-setup.html"/>
+<link rel="import" href="../../core/gr-router/gr-router.html">
 <link rel="import" href="gr-change-metadata.html">
 
 <script>void(0);</script>
@@ -38,6 +39,9 @@ limitations under the License.
 
     setup(() => {
       sandbox = sinon.sandbox.create();
+      stub('gr-endpoint-decorator', {
+        _import: sandbox.stub().returns(Promise.resolve()),
+      });
       stub('gr-rest-api-interface', {
         getConfig() { return Promise.resolve({}); },
         getLoggedIn() { return Promise.resolve(false); },
@@ -52,11 +56,12 @@ limitations under the License.
 
     test('computed fields', () => {
       assert.isFalse(element._computeHideStrategy({status: 'NEW'}));
-      assert.isFalse(element._computeHideStrategy({status: 'DRAFT'}));
       assert.isTrue(element._computeHideStrategy({status: 'MERGED'}));
       assert.isTrue(element._computeHideStrategy({status: 'ABANDONED'}));
       assert.equal(element._computeStrategy({submit_type: 'CHERRY_PICK'}),
           'Cherry Pick');
+      assert.equal(element._computeStrategy({submit_type: 'REBASE_ALWAYS'}),
+          'Rebase Always');
     });
 
     test('show strategy for open change', () => {
@@ -98,21 +103,23 @@ limitations under the License.
     });
 
     test('show missing labels', () => {
-      let labels = {};
-      assert.isFalse(element._showMissingLabels(labels));
-      labels = {test: {}};
-      assert.isTrue(element._showMissingLabels(labels));
-      assert.deepEqual(element._computeMissingLabels(labels), ['test']);
-      labels.test.approved = true;
-      assert.isFalse(element._showMissingLabels(labels));
-      labels.test.approved = false;
-      labels.test.optional = true;
-      assert.isFalse(element._showMissingLabels(labels));
-      labels.test.optional = false;
-      labels.test2 = {};
-      assert.isTrue(element._showMissingLabels(labels));
-      assert.deepEqual(element._computeMissingLabels(labels),
-          ['test', 'test2']);
+      let missingLabels = [];
+      assert.isFalse(element._showMissingLabels(missingLabels));
+      missingLabels = ['test'];
+      assert.isTrue(element._showMissingLabels(missingLabels));
+      missingLabels.push('test2');
+      assert.isTrue(element._showMissingLabels(missingLabels));
+    });
+
+    test('weblinks use Gerrit.Nav interface', () => {
+      const weblinksStub = sandbox.stub(Gerrit.Nav, '_generateWeblinks')
+          .returns([{name: 'stubb', url: '#s'}]);
+      element.commitInfo = {};
+      flushAsynchronousOperations();
+      const webLinks = element.$.webLinks;
+      assert.isTrue(weblinksStub.called);
+      assert.isFalse(webLinks.hasAttribute('hidden'));
+      assert.equal(element._computeWebLinks(element.commitInfo).length, 1);
     });
 
     test('weblinks hidden when no weblinks', () => {
@@ -131,6 +138,10 @@ limitations under the License.
     });
 
     test('weblinks are visible when other weblinks', () => {
+      const router = document.createElement('gr-router');
+      sandbox.stub(Gerrit.Nav, '_generateWeblinks',
+          router._generateWeblinks.bind(router));
+
       element.commitInfo = {web_links: [{name: 'test', url: '#'}]};
       flushAsynchronousOperations();
       const webLinks = element.$.webLinks;
@@ -143,6 +154,10 @@ limitations under the License.
     });
 
     test('weblinks are visible when gitiles and other weblinks', () => {
+      const router = document.createElement('gr-router');
+      sandbox.stub(Gerrit.Nav, '_generateWeblinks',
+          router._generateWeblinks.bind(router));
+
       element.commitInfo = {
         web_links: [{name: 'test', url: '#'}, {name: 'gitiles', url: '#'}]};
       flushAsynchronousOperations();
@@ -154,6 +169,7 @@ limitations under the License.
 
     test('determines whether to show "Ready to Submit" label', () => {
       const showMissingSpy = sandbox.spy(element, '_showMissingRequirements');
+      element.missingLabels = ['bojack'];
       element.change = {status: 'NEW', submit_type: 'CHERRY_PICK', labels: {
         test: {
           all: [{_account_id: 1, name: 'bojack', value: 1}],
@@ -163,6 +179,189 @@ limitations under the License.
       }};
       flushAsynchronousOperations();
       assert.isTrue(showMissingSpy.called);
+    });
+
+    test('_computeShowUploader test for uploader', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        owner: {
+          _account_id: 1019328,
+        },
+        revisions: {
+          rev1: {
+            _number: 1,
+            uploader: {
+              _account_id: 1011123,
+            },
+          },
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        labels: {},
+        mergeable: true,
+      };
+      assert.deepEqual(element._computeShowUploader(change),
+          {_account_id: 1011123});
+    });
+
+    test('_computeShowUploader test that it does not return uploader', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        owner: {
+          _account_id: 1011123,
+        },
+        revisions: {
+          rev1: {
+            _number: 1,
+            uploader: {
+              _account_id: 1011123,
+            },
+          },
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        labels: {},
+        mergeable: true,
+      };
+      assert.isNotOk(element._computeShowUploader(change));
+    });
+
+    test('no current_revision makes _computeShowUploader return null', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        owner: {
+          _account_id: 1011123,
+        },
+        revisions: {
+          rev1: {
+            _number: 1,
+            uploader: {
+              _account_id: 1011123,
+            },
+          },
+        },
+        status: 'NEW',
+        labels: {},
+        mergeable: true,
+      };
+      assert.isNotOk(element._computeShowUploader(change));
+    });
+
+    test('_computeShowUploaderHide test for string which equals true', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        owner: {
+          _account_id: 1019328,
+        },
+        revisions: {
+          rev1: {
+            _number: 1,
+            uploader: {
+              _account_id: 1011123,
+            },
+          },
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        labels: {},
+        mergeable: true,
+      };
+      assert.equal(element._computeShowUploaderHide(change), '');
+    });
+
+    test('_computeShowUploaderHide test for hideDisplay', () => {
+      const change = {
+        change_id: 'Iad9dc96274af6946f3632be53b106ef80f7ba6ca',
+        owner: {
+          _account_id: 1011123,
+        },
+        revisions: {
+          rev1: {
+            _number: 1,
+            uploader: {
+              _account_id: 1011123,
+            },
+          },
+        },
+        current_revision: 'rev1',
+        status: 'NEW',
+        labels: {},
+        mergeable: true,
+      };
+      assert.equal(
+          element._computeShowUploaderHide(change), 'hideDisplay');
+    });
+
+    test('_computeValueTooltip', () => {
+      // Existing label.
+      const change = {labels: {'Foo-bar': {values: {0: 'Baz'}}}};
+      let score = '0';
+      let labelName = 'Foo-bar';
+      let actual = element._computeValueTooltip(change, score, labelName);
+      assert.equal(actual, 'Baz');
+
+      // Non-extsistent label.
+      labelName = 'xyz';
+      actual = element._computeValueTooltip(change, score, labelName);
+      assert.equal(actual, '');
+
+      // Non-extsistent score.
+      score = '2';
+      actual = element._computeValueTooltip(change, score, labelName);
+      assert.equal(actual, '');
+
+      // No values on label.
+      labelName = 'abcd';
+      score = '0';
+      change.labels.abcd = {};
+      actual = element._computeValueTooltip(change, score, labelName);
+      assert.equal(actual, '');
+    });
+
+    test('_computeParents', () => {
+      const parents = [{commit: '123', subject: 'abc'}];
+      assert.isUndefined(element._computeParents(
+          {revisions: {456: {commit: {parents}}}}));
+      assert.isUndefined(element._computeParents(
+          {current_revision: '789', revisions: {456: {commit: {parents}}}}));
+      assert.equal(element._computeParents(
+          {current_revision: '456', revisions: {456: {commit: {parents}}}}),
+          parents);
+    });
+
+    test('_computeParentsLabel', () => {
+      const parent = {commit: 'abc123', subject: 'My parent commit'};
+      assert.equal(element._computeParentsLabel([parent]), 'Parent');
+      assert.equal(element._computeParentsLabel([parent, parent]),
+          'Parents');
+    });
+
+    test('_computeParentListClass', () => {
+      const parent = {commit: 'abc123', subject: 'My parent commit'};
+      assert.equal(element._computeParentListClass([parent], true),
+          'parentList nonMerge current');
+      assert.equal(element._computeParentListClass([parent], false),
+          'parentList nonMerge notCurrent');
+      assert.equal(element._computeParentListClass([parent, parent], false),
+          'parentList merge notCurrent');
+      assert.equal(element._computeParentListClass([parent, parent], true),
+          'parentList merge current');
+    });
+
+    test('_showAddTopic', () => {
+      assert.isTrue(element._showAddTopic(null, false));
+      assert.isTrue(element._showAddTopic({base: {topic: null}}, false));
+      assert.isFalse(element._showAddTopic({base: {topic: null}}, true));
+      assert.isFalse(element._showAddTopic({base: {topic: 'foo'}}, true));
+      assert.isFalse(element._showAddTopic({base: {topic: 'foo'}}, false));
+    });
+
+    test('_showTopicChip', () => {
+      assert.isFalse(element._showTopicChip(null, false));
+      assert.isFalse(element._showTopicChip({base: {topic: null}}, false));
+      assert.isFalse(element._showTopicChip({base: {topic: null}}, true));
+      assert.isFalse(element._showTopicChip({base: {topic: 'foo'}}, true));
+      assert.isTrue(element._showTopicChip({base: {topic: 'foo'}}, false));
     });
 
     suite('Topic removal', () => {
@@ -217,12 +416,76 @@ limitations under the License.
       });
     });
 
+    suite('Hashtag removal', () => {
+      let change;
+      setup(() => {
+        change = {
+          _number: 'the number',
+          actions: {
+            hashtags: {enabled: false},
+          },
+          change_id: 'the id',
+          hashtags: ['test-hashtag'],
+          status: 'NEW',
+          submit_type: 'CHERRY_PICK',
+          labels: {
+            test: {
+              all: [{_account_id: 1, name: 'bojack', value: 1}],
+              default_value: 0,
+              values: [],
+            },
+          },
+          removable_reviewers: [],
+        };
+      });
+
+      test('_computeHashtagReadOnly', () => {
+        element.serverConfig = {
+          note_db_enabled: true,
+        };
+        flushAsynchronousOperations();
+        let mutable = false;
+        assert.isTrue(element._computeHashtagReadOnly(mutable, change));
+        mutable = true;
+        assert.isTrue(element._computeHashtagReadOnly(mutable, change));
+        change.actions.hashtags.enabled = true;
+        assert.isFalse(element._computeHashtagReadOnly(mutable, change));
+        mutable = false;
+        assert.isTrue(element._computeHashtagReadOnly(mutable, change));
+      });
+
+      test('hashtag read only hides delete button', () => {
+        element.serverConfig = {
+          note_db_enabled: true,
+        };
+        flushAsynchronousOperations();
+        element.mutable = false;
+        element.change = change;
+        flushAsynchronousOperations();
+        const button = element.$$('gr-linked-chip').$$('gr-button');
+        assert.isTrue(button.hasAttribute('hidden'));
+      });
+
+      test('hashtag not read only does not hide delete button', () => {
+        element.serverConfig = {
+          note_db_enabled: true,
+        };
+        flushAsynchronousOperations();
+        element.mutable = true;
+        change.actions.hashtags.enabled = true;
+        element.change = change;
+        flushAsynchronousOperations();
+        const button = element.$$('gr-linked-chip').$$('gr-button');
+        assert.isFalse(button.hasAttribute('hidden'));
+      });
+    });
+
     suite('remove reviewer votes', () => {
       setup(() => {
         sandbox.stub(element, '_computeValueTooltip').returns('');
         sandbox.stub(element, '_computeTopicReadOnly').returns(true);
         element.change = {
-          _number: 'the number',
+          _number: 42,
           change_id: 'the id',
           actions: [],
           topic: 'the topic',
@@ -260,17 +523,9 @@ limitations under the License.
       });
 
       test('deletes votes', done => {
-        sandbox.stub(element.$.restAPI, 'deleteVote')
+        const deleteStub = sandbox.stub(element.$.restAPI, 'deleteVote')
             .returns(Promise.resolve({ok: true}));
-        const spliceStub = sandbox.stub(element, 'splice', (path, index,
-            length) => {
-          assert.deepEqual(path, ['change.labels', 'test', 'all']);
-          assert.equal(index, 0);
-          assert.equal(length, 1);
-          assert.notOk(element.change.labels.test.recommended);
-          spliceStub.restore();
-          done();
-        });
+
         element.change.removable_reviewers = [
           {
             _account_id: 1,
@@ -280,8 +535,23 @@ limitations under the License.
         element.change.labels.test.recommended = {_account_id: 1};
         element.mutable = true;
         flushAsynchronousOperations();
-        const button = element.$$('gr-account-chip').$$('gr-button');
+        const chip = element.$$('gr-account-chip');
+        const button = chip.$$('gr-button');
+
+        const spliceStub = sandbox.stub(element, 'splice', (path, index,
+            length) => {
+          assert.isFalse(chip.disabled);
+          assert.deepEqual(path, ['change.labels', 'test', 'all']);
+          assert.equal(index, 0);
+          assert.equal(length, 1);
+          assert.notOk(element.change.labels.test.recommended);
+          assert.isTrue(deleteStub.calledWithExactly(42, 1, 'test'));
+          spliceStub.restore();
+          done();
+        });
+
         MockInteractions.tap(button);
+        assert.isTrue(chip.disabled);
       });
 
       test('changing topic', () => {
@@ -292,7 +562,7 @@ limitations under the License.
         const topicChangedSpy = sandbox.spy();
         element.addEventListener('topic-changed', topicChangedSpy);
         assert.isTrue(element.$.restAPI.setChangeTopic.calledWith(
-            'the number', newTopic));
+            42, newTopic));
         return element.$.restAPI.setChangeTopic.lastCall.returnValue
             .then(() => {
               assert.equal(element.change.topic, newTopic);
@@ -303,16 +573,37 @@ limitations under the License.
       test('topic removal', () => {
         sandbox.stub(element.$.restAPI, 'setChangeTopic').returns(
             Promise.resolve());
-        const remove = element.$$('gr-linked-chip').$.remove;
+        const chip = element.$$('gr-linked-chip');
+        const remove = chip.$.remove;
         const topicChangedSpy = sandbox.spy();
         element.addEventListener('topic-changed', topicChangedSpy);
         MockInteractions.tap(remove);
+        assert.isTrue(chip.disabled);
         assert.isTrue(element.$.restAPI.setChangeTopic.calledWith(
-            'the number', null));
+            42, null));
         return element.$.restAPI.setChangeTopic.lastCall.returnValue
             .then(() => {
+              assert.isFalse(chip.disabled);
               assert.equal(element.change.topic, '');
               assert.isTrue(topicChangedSpy.called);
+            });
+      });
+
+      test('changing hashtag', () => {
+        element.serverConfig = {
+          note_db_enabled: true,
+        };
+        flushAsynchronousOperations();
+        element._newHashtag = 'new hashtag';
+        const newHashtag = ['new hashtag'];
+        sandbox.stub(element.$.restAPI, 'setChangeHashtag').returns(
+            Promise.resolve(newHashtag));
+        element._handleHashtagChanged({}, 'new hashtag');
+        assert.isTrue(element.$.restAPI.setChangeHashtag.calledWith(
+            42, {add: ['new hashtag']}));
+        return element.$.restAPI.setChangeHashtag.lastCall.returnValue
+            .then(() => {
+              assert.equal(element.change.hashtags, newHashtag);
             });
       });
 
@@ -367,6 +658,130 @@ limitations under the License.
           mutable = false;
           assert.isTrue(element._computeAssigneeReadOnly(mutable, change));
         });
+      });
+    });
+
+    suite('plugin endpoints', () => {
+      test('endpoint params', done => {
+        element.change = {labels: {}};
+        element.revision = {};
+        let hookEl;
+        let plugin;
+        Gerrit.install(
+            p => {
+              plugin = p;
+              plugin.hook('change-metadata-item').getLastAttached().then(
+                  el => hookEl = el);
+            },
+            '0.1',
+            'http://some/plugins/url.html');
+        Gerrit._setPluginsCount(0);
+        flush(() => {
+          assert.strictEqual(hookEl.plugin, plugin);
+          assert.strictEqual(hookEl.change, element.change);
+          assert.strictEqual(hookEl.revision, element.revision);
+          done();
+        });
+      });
+    });
+
+    suite('label colors', () => {
+      test('valueless label rejected', () => {
+        element.change = {
+          labels: {
+            'Do-Not-Submit': {
+              rejected: {name: 'someone'},
+            },
+          },
+        };
+        flushAsynchronousOperations();
+        const labels = Polymer.dom(element.root).querySelectorAll('gr-label');
+        assert.isTrue(labels[0].classList.contains('negative'));
+      });
+
+      test('valueless label approved', () => {
+        element.change = {
+          labels: {
+            'To-The-Infinity': {
+              approved: {name: 'someone'},
+            },
+          },
+        };
+        flushAsynchronousOperations();
+        const labels = Polymer.dom(element.root).querySelectorAll('gr-label');
+        assert.isTrue(labels[0].classList.contains('positive'));
+      });
+
+      test('-2 to +2', () => {
+        element.change = {
+          labels: {
+            'Code-Review': {
+              all: [
+                {value: 2, name: 'user 2'},
+                {value: 1, name: 'user 1'},
+                {value: -1, name: 'user 3'},
+                {value: -2, name: 'user 4'},
+              ],
+              values: {
+                '-2': 'Awful',
+                '-1': 'Don\'t submit as-is',
+                ' 0': 'No score',
+                '+1': 'Looks good to me',
+                '+2': 'Ready to submit',
+              },
+            },
+          },
+        };
+        flushAsynchronousOperations();
+        const labels = Polymer.dom(element.root).querySelectorAll('gr-label');
+        assert.isTrue(labels[0].classList.contains('max'));
+        assert.isTrue(labels[1].classList.contains('positive'));
+        assert.isTrue(labels[2].classList.contains('negative'));
+        assert.isTrue(labels[3].classList.contains('min'));
+      });
+
+      test('-1 to +1', () => {
+        element.change = {
+          labels: {
+            CI: {
+              all: [
+                {value: 1, name: 'user 1'},
+                {value: -1, name: 'user 2'},
+              ],
+              values: {
+                '-1': 'Don\'t submit as-is',
+                ' 0': 'No score',
+                '+1': 'Looks good to me',
+              },
+            },
+          },
+        };
+        flushAsynchronousOperations();
+        const labels = Polymer.dom(element.root).querySelectorAll('gr-label');
+        assert.isTrue(labels[0].classList.contains('max'));
+        assert.isTrue(labels[1].classList.contains('min'));
+      });
+
+      test('0 to +2', () => {
+        element.change = {
+          labels: {
+            CI: {
+              all: [
+                {value: 1, name: 'user 2'},
+                {value: 2, name: 'user '},
+              ],
+              values: {
+                ' 0': 'Don\'t submit as-is',
+                '+1': 'No score',
+                '+2': 'Looks good to me',
+              },
+            },
+          },
+        };
+        flushAsynchronousOperations();
+        const labels = Polymer.dom(element.root).querySelectorAll('gr-label');
+        assert.isTrue(labels[0].classList.contains('positive'));
+        assert.isTrue(labels[1].classList.contains('max'));
       });
     });
   });

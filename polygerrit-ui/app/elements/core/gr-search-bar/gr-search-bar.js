@@ -14,72 +14,80 @@
 (function() {
   'use strict';
 
-  // Possible static search options for auto complete.
+  // Possible static search options for auto complete, without negations.
   const SEARCH_OPERATORS = [
-    'added',
-    'age',
+    'added:',
+    'age:',
     'age:1week', // Give an example age
-    'author',
-    'branch',
-    'bug',
-    'cc',
+    'assignee:',
+    'author:',
+    'branch:',
+    'bug:',
+    'cc:',
     'cc:self',
-    'change',
-    'comment',
-    'commentby',
-    'commit',
-    'committer',
-    'conflicts',
-    'deleted',
-    'delta',
-    'file',
-    'from',
-    'has',
+    'change:',
+    'comment:',
+    'commentby:',
+    'commit:',
+    'committer:',
+    'conflicts:',
+    'deleted:',
+    'delta:',
+    'file:',
+    'from:',
+    'has:',
     'has:draft',
     'has:edit',
     'has:star',
     'has:stars',
-    'intopic',
-    'is',
+    'has:unresolved',
+    'hashtag:',
+    'intopic:',
+    'is:',
     'is:abandoned',
+    'is:assigned',
     'is:closed',
-    'is:draft',
     'is:ignored',
     'is:mergeable',
     'is:merged',
     'is:open',
     'is:owner',
     'is:pending',
+    'is:private',
     'is:reviewed',
     'is:reviewer',
     'is:starred',
     'is:watched',
-    'label',
-    'message',
-    'owner',
-    'ownerin',
-    'parentproject',
-    'project',
-    'projects',
-    'query',
-    'ref',
-    'reviewedby',
-    'reviewer',
+    'is:wip',
+    'label:',
+    'message:',
+    'owner:',
+    'ownerin:',
+    'parentproject:',
+    'project:',
+    'projects:',
+    'query:',
+    'ref:',
+    'reviewedby:',
+    'reviewer:',
     'reviewer:self',
-    'reviewerin',
-    'size',
-    'star',
-    'status',
+    'reviewerin:',
+    'size:',
+    'star:',
+    'status:',
     'status:abandoned',
     'status:closed',
-    'status:draft',
     'status:merged',
     'status:open',
     'status:pending',
     'status:reviewed',
-    'topic',
-    'tr',
+    'topic:',
+    'tr:',
   ];
+
+  // All of the ops, with corresponding negations.
+  const SEARCH_OPERATORS_WITH_NEGATIONS =
+      SEARCH_OPERATORS.concat(SEARCH_OPERATORS.map(op => `-${op}`));
 
   const SELF_EXPRESSION = 'self';
   const ME_EXPRESSION = 'me';
@@ -92,13 +100,10 @@
     is: 'gr-search-bar',
 
     behaviors: [
+      Gerrit.AnonymousNameBehavior,
       Gerrit.KeyboardShortcutBehavior,
       Gerrit.URLEncodingBehavior,
     ],
-
-    listeners: {
-      'searchButton.tap': '_preventDefaultAndNavigateToInputVal',
-    },
 
     keyBindings: {
       '/': '_handleForwardSlashKey',
@@ -122,6 +127,17 @@
         },
       },
       _inputVal: String,
+      _threshold: {
+        type: Number,
+        value: 1,
+      },
+      _config: Object,
+    },
+
+    attached() {
+      this.$.restAPI.getConfig().then(cfg => {
+        this._config = cfg;
+      });
     },
 
     _valueChanged(value) {
@@ -155,6 +171,10 @@
       }
     },
 
+    _accountOrAnon(name) {
+      return this.getUserName(this._config, name, false);
+    },
+
     /**
      * Fetch from the API the predicted accounts.
      * @param {string} predicate - The first part of the search term, e.g.
@@ -171,8 +191,9 @@
           MAX_AUTOCOMPLETE_RESULTS)
           .then(accounts => {
             if (!accounts) { return []; }
-            return accounts.map(acct =>
-                predicate + ':"' + acct.name + ' <' + acct.email + '>"');
+            return accounts.map(acct => acct.email ?
+              `${predicate}:${acct.email}` :
+              `${predicate}:"${this._accountOrAnon(acct)}"`);
           }).then(accounts => {
             // When the expression supplied is a beginning substring of 'self',
             // add it as an autocomplete option.
@@ -263,7 +284,7 @@
           return this._fetchAccounts(predicate, expression);
 
         default:
-          return Promise.resolve(SEARCH_OPERATORS
+          return Promise.resolve(SEARCH_OPERATORS_WITH_NEGATIONS
               .filter(operator => operator.includes(input)));
       }
     },
@@ -311,8 +332,9 @@
     },
 
     _handleForwardSlashKey(e) {
+      const keyboardEvent = this.getKeyboardEvent(e);
       if (this.shouldSuppressKeyboardShortcut(e) ||
-          this.modifierPressed(e)) { return; }
+          (this.modifierPressed(e) && !keyboardEvent.shiftKey)) { return; }
 
       e.preventDefault();
       this.$.searchInput.focus();

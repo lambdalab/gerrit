@@ -64,6 +64,13 @@
   const catchErrors = function(opt_context) {
     const context = opt_context || window;
     context.onerror = onError.bind(null, context.onerror);
+    context.addEventListener('unhandledrejection', e => {
+      const msg = e.reason.message;
+      const payload = {
+        error: e.reason,
+      };
+      GrReporting.prototype.reporter(ERROR.TYPE, ERROR.CATEGORY, msg, payload);
+    });
   };
   catchErrors();
 
@@ -191,7 +198,7 @@
      */
     timeEnd(name) {
       const baseTime = this._baselines[name] || 0;
-      const time = this.now() - baseTime;
+      const time = Math.round(this.now() - baseTime) + 'ms';
       this.reporter(TIMING.TYPE, TIMING.CATEGORY, name, time);
       delete this._baselines[name];
     },

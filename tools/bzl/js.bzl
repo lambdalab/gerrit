@@ -2,17 +2,7 @@ NPMJS = "NPMJS"
 
 GERRIT = "GERRIT:"
 
-NPM_VERSIONS = {
-    "bower": "1.8.0",
-    "crisper": "2.0.2",
-    "vulcanize": "1.14.8",
-}
-
-NPM_SHA1S = {
-    "bower": "55dbebef0ad9155382d9e9d3e497c1372345b44a",
-    "crisper": "7183c58cea33632fb036c91cefd1b43e390d22a2",
-    "vulcanize": "679107f251c19ab7539529b1e3fdd40829e6fc63",
-}
+load("//lib/js:npm.bzl", "NPM_VERSIONS", "NPM_SHA1S")
 
 def _npm_tarball(name):
   return "%s@%s.npm_binary.tgz" % (name, NPM_VERSIONS[name])
@@ -21,7 +11,7 @@ def _npm_binary_impl(ctx):
   """rule to download a NPM archive."""
   name = ctx.name
   version= NPM_VERSIONS[name]
-  sha1 = NPM_VERSIONS[name]
+  sha1 = NPM_SHA1S[name]
 
   dir = '%s-%s' % (name, version)
   filename = '%s.tgz' % dir
@@ -38,7 +28,6 @@ def _npm_binary_impl(ctx):
   python = ctx.which("python")
   script = ctx.path(ctx.attr._download_script)
 
-  sha1 = NPM_SHA1S[name]
   args = [python, script, "-o", dest, "-u", url, "-v", sha1]
   out = ctx.execute(args)
   if out.return_code:
@@ -91,7 +80,11 @@ def _bower_archive(ctx):
     "cd bower_components",
     "unzip %s" % ctx.path(download_name),
     "cd ..",
-    "zip -r %s bower_components" % renamed_name,]))
+    "find . -exec touch -t 198001010000 '{}' ';'",
+    "zip -r %s bower_components" % renamed_name,
+    "cd ..",
+    "rm -rf ${TMP}",
+  ]))
 
   dep_version = ctx.attr.semver if ctx.attr.semver else ctx.attr.version
   ctx.file(version_name,
@@ -124,18 +117,18 @@ bower_archive = repository_rule(
 )
 
 def _bower_component_impl(ctx):
-  transitive_zipfiles = set([ctx.file.zipfile])
+  transitive_zipfiles = depset([ctx.file.zipfile])
   for d in ctx.attr.deps:
     transitive_zipfiles += d.transitive_zipfiles
 
-  transitive_licenses = set()
+  transitive_licenses = depset()
   if ctx.file.license:
-    transitive_licenses += set([ctx.file.license])
+    transitive_licenses += depset([ctx.file.license])
 
   for d in ctx.attr.deps:
     transitive_licenses += d.transitive_licenses
 
-  transitive_versions = set(ctx.files.version_json)
+  transitive_versions = depset(ctx.files.version_json)
   for d in ctx.attr.deps:
     transitive_versions += d.transitive_versions
 
@@ -167,27 +160,27 @@ def _js_component(ctx):
     "zip -qr ../%s *" %  ctx.outputs.zip.basename
   ])
 
-  ctx.action(
+  ctx.actions.run_shell(
     inputs = ctx.files.srcs,
     outputs = [ctx.outputs.zip],
     command = cmd,
     mnemonic = "GenBowerZip")
 
-  licenses = set()
+  licenses = depset()
   if ctx.file.license:
-    licenses += set([ctx.file.license])
+    licenses += depset([ctx.file.license])
 
   return struct(
     transitive_zipfiles=list([ctx.outputs.zip]),
-    transitive_versions=set([]),
+    transitive_versions=depset(),
     transitive_licenses=licenses)
 
 js_component = rule(
     _js_component,
-    attrs = _common_attrs + {
+    attrs = dict(_common_attrs.items() + {
         "srcs": attr.label_list(allow_files = [".js"]),
         "license": attr.label(allow_single_file = True),
-    },
+    }.items()),
     outputs = {
         "zip": "%{name}.zip",
     },
@@ -195,14 +188,14 @@ js_component = rule(
 
 _bower_component = rule(
     _bower_component_impl,
-    attrs = _common_attrs + {
+    attrs = dict(_common_attrs.items() + {
         "zipfile": attr.label(allow_single_file = [".zip"]),
         "license": attr.label(allow_single_file = True),
         "version_json": attr.label(allow_files = [".json"]),
 
         # If set, define by hand, and don't regenerate this entry in bower2bazel.
         "seed": attr.bool(default = False),
-    },
+    }.items()),
 )
 
 # TODO(hanwen): make license mandatory.
@@ -219,22 +212,22 @@ def bower_component(name, license=None, **kwargs):
 
 def _bower_component_bundle_impl(ctx):
   """A bunch of bower components zipped up."""
-  zips = set([])
+  zips = depset()
   for d in ctx.attr.deps:
     zips += d.transitive_zipfiles
 
-  versions = set([])
+  versions = depset()
   for d in ctx.attr.deps:
     versions += d.transitive_versions
 
-  licenses = set([])
+  licenses = depset()
   for d in ctx.attr.deps:
     licenses += d.transitive_versions
 
   out_zip = ctx.outputs.zip
   out_versions = ctx.outputs.version_json
 
-  ctx.action(
+  ctx.actions.run_shell(
     inputs=list(zips),
     outputs=[out_zip],
     command=" && ".join([
@@ -249,7 +242,7 @@ def _bower_component_bundle_impl(ctx):
     ]),
     mnemonic="BowerCombine")
 
-  ctx.action(
+  ctx.actions.run_shell(
     inputs=list(versions),
     outputs=[out_versions],
     mnemonic="BowerVersions",
@@ -268,6 +261,7 @@ bower_component_bundle = rule(
         "version_json": "%{name}-versions.json",
     },
 )
+
 """Groups a set of bower components together in a zip file.
 
 Outputs:
@@ -279,9 +273,12 @@ Outputs:
 """
 
 def _vulcanize_impl(ctx):
-  # intermediate artifact.
-  vulcanized = ctx.new_file(
-    ctx.configuration.genfiles_dir, ctx.outputs.html, ".vulcanized.html")
+  # intermediate artifact if split is wanted.
+  if ctx.attr.split:
+    vulcanized = ctx.new_file(
+      ctx.configuration.genfiles_dir, ctx.outputs.html, ".vulcanized.html")
+  else:
+    vulcanized = ctx.outputs.html
   destdir = ctx.outputs.html.path + ".dir"
   zips =  [z for d in ctx.attr.deps for z in d.transitive_zipfiles ]
 
@@ -317,7 +314,7 @@ def _vulcanize_impl(ctx):
     use_default_shell_env = True,
     execution_requirements = {"local": "1"},
   )
-  ctx.action(
+  ctx.actions.run_shell(
     mnemonic = "Vulcanize",
     inputs = [ctx.file._run_npm, ctx.file.app,
               ctx.file._vulcanize_archive
@@ -326,22 +323,30 @@ def _vulcanize_impl(ctx):
     command = cmd,
     **node_tweaks)
 
-  hermetic_npm_command = "export PATH && " + " ".join([
-    'python',
-    ctx.file._run_npm.path,
-    ctx.file._crisper_archive.path,
-    "--always-write-script",
-    "--source", vulcanized.path,
-    "--html", ctx.outputs.html.path,
-    "--js", ctx.outputs.js.path])
+  if ctx.attr.split:
+    hermetic_npm_command = "export PATH && " + " ".join([
+      'python',
+      ctx.file._run_npm.path,
+      ctx.file._crisper_archive.path,
+      "--always-write-script",
+      "--source", vulcanized.path,
+      "--html", ctx.outputs.html.path,
+      "--js", ctx.outputs.js.path])
 
-  ctx.action(
-    mnemonic = "Crisper",
-    inputs = [ctx.file._run_npm, ctx.file.app,
-              ctx.file._crisper_archive, vulcanized],
-    outputs = [ctx.outputs.js, ctx.outputs.html],
-    command = hermetic_npm_command,
-    **node_tweaks)
+    ctx.actions.run_shell(
+      mnemonic = "Crisper",
+      inputs = [ctx.file._run_npm, ctx.file.app,
+                ctx.file._crisper_archive, vulcanized],
+      outputs = [ctx.outputs.js, ctx.outputs.html],
+      command = hermetic_npm_command,
+      **node_tweaks)
+
+def _vulcanize_output_func(name, split):
+  _ignore = [name]  # unused.
+  out = {"html": "%{name}.html"}
+  if split:
+    out["js"] = "%{name}.js"
+  return out
 
 _vulcanize_rule = rule(
     _vulcanize_impl,
@@ -359,6 +364,7 @@ _vulcanize_rule = rule(
             ".ico",
         ]),
         "pkg": attr.string(mandatory = True),
+        "split": attr.bool(default = True),
         "_run_npm": attr.label(
             default = Label("//tools/js:run_npm_binary.py"),
             allow_single_file = True,
@@ -372,12 +378,13 @@ _vulcanize_rule = rule(
             allow_single_file = True,
         ),
     },
-    outputs = {
-        "html": "%{name}.html",
-        "js": "%{name}.js",
-    },
+    outputs = _vulcanize_output_func,
 )
 
 def vulcanize(*args, **kwargs):
-  """Vulcanize runs vulcanize and crisper on a set of sources."""
+  """Vulcanize runs vulcanize and (optionally) crisper on a set of sources."""
+  _vulcanize_rule(*args, pkg=PACKAGE_NAME, **kwargs)
+
+def polygerrit_plugin(*args, **kwargs):
+  """Bundles plugin dependencies for deployment."""
   _vulcanize_rule(*args, pkg=PACKAGE_NAME, **kwargs)
