@@ -17,33 +17,56 @@ package com.google.gerrit.pgm.init.api;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.config.SitePaths;
 import com.google.gerrit.server.git.GitRepositoryManager;
+import com.google.gerrit.server.git.backends.DfsRepositoryManager;
+import com.google.gerrit.server.git.backends.GitBackendConfig;
 import com.google.inject.Inject;
+import com.google.inject.Injector;
 import com.google.inject.Singleton;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.SortedSet;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.internal.storage.file.FileRepository;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.RepositoryCache.FileKey;
 import org.eclipse.jgit.util.FS;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.SortedSet;
+
 @Singleton
 public class GitRepositoryManagerOnInit implements GitRepositoryManager {
   private final InitFlags flags;
   private final SitePaths site;
+  private GitBackendConfig config;
+  private Injector injector;
 
   @Inject
-  GitRepositoryManagerOnInit(InitFlags flags, SitePaths site) {
+  GitRepositoryManagerOnInit(InitFlags flags, SitePaths site, GitBackendConfig backendConfig,Injector injector) {
     this.flags = flags;
     this.site = site;
+    this.config = backendConfig;
+    this.injector = injector;
   }
 
   @Override
   public Repository openRepository(Project.NameKey name)
       throws RepositoryNotFoundException, IOException {
-    return new FileRepository(getPath(name));
+    switch (config.getBackendType()) {
+      case DFS:
+        try {
+          Class<DfsRepositoryManager> clazz = (Class<DfsRepositoryManager>) Class.forName(config.managerClass());
+          DfsRepositoryManager repositoryManager = injector.getInstance(clazz);
+          repositoryManager.start();
+          return repositoryManager.openRepository(name);
+        } catch (ClassNotFoundException e) {
+          throw new IllegalStateException("Class "+config.managerClass()+" not found.", e);
+        } catch (Exception e) {
+          throw new RuntimeException("init manager failed.", e);
+        }
+      case FILE:
+      default:
+        return new FileRepository(getPath(name));
+    }
   }
 
   @Override

@@ -18,10 +18,12 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.base.Strings;
 import com.google.gerrit.pgm.init.api.AllUsersNameOnInitProvider;
+import com.google.gerrit.pgm.init.api.GitRepositoryManagerOnInit;
 import com.google.gerrit.pgm.init.api.InitFlags;
 import com.google.gerrit.pgm.init.api.VersionedMetaDataOnInit;
 import com.google.gerrit.reviewdb.client.Account;
 import com.google.gerrit.reviewdb.client.AccountSshKey;
+import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.reviewdb.client.RefNames;
 import com.google.gerrit.server.account.AuthorizedKeys;
 import com.google.gerrit.server.account.VersionedAuthorizedKeys;
@@ -33,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.lib.CommitBuilder;
+import org.eclipse.jgit.lib.Repository;
 
 public class VersionedAuthorizedKeysOnInit extends VersionedMetaDataOnInit {
   public interface Factory {
@@ -40,6 +43,7 @@ public class VersionedAuthorizedKeysOnInit extends VersionedMetaDataOnInit {
   }
 
   private final Account.Id accountId;
+  private GitRepositoryManagerOnInit repositoryManager;
   private List<Optional<AccountSshKey>> keys;
 
   @Inject
@@ -47,9 +51,15 @@ public class VersionedAuthorizedKeysOnInit extends VersionedMetaDataOnInit {
       AllUsersNameOnInitProvider allUsers,
       SitePaths site,
       InitFlags flags,
-      @Assisted Account.Id accountId) {
+      @Assisted Account.Id accountId, GitRepositoryManagerOnInit repositoryManager) {
     super(flags, site, allUsers.get(), RefNames.refsUsers(accountId));
     this.accountId = accountId;
+    this.repositoryManager = repositoryManager;
+  }
+
+  @Override
+  public Repository getRepository(String project) throws IOException {
+    return repositoryManager.openRepository(Project.NameKey.parse(project));
   }
 
   @Override

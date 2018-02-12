@@ -22,10 +22,7 @@ import com.google.gerrit.server.git.ProjectConfig;
 import com.google.inject.Inject;
 import java.io.IOException;
 import org.eclipse.jgit.errors.ConfigInvalidException;
-import org.eclipse.jgit.lib.CommitBuilder;
-import org.eclipse.jgit.lib.Config;
-import org.eclipse.jgit.lib.PersonIdent;
-import org.eclipse.jgit.lib.RepositoryCache;
+import org.eclipse.jgit.lib.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,10 +32,12 @@ public class AllProjectsConfig extends VersionedMetaDataOnInit {
 
   private Config cfg;
   private GroupList groupList;
+  private GitRepositoryManagerOnInit repositoryManager;
 
   @Inject
-  AllProjectsConfig(AllProjectsNameOnInitProvider allProjects, SitePaths site, InitFlags flags) {
+  AllProjectsConfig(AllProjectsNameOnInitProvider allProjects, SitePaths site, InitFlags flags, GitRepositoryManagerOnInit repositoryManager) {
     super(flags, site, allProjects.get(), RefNames.REFS_CONFIG);
+    this.repositoryManager = repositoryManager;
   }
 
   public Config getConfig() {
@@ -47,6 +46,11 @@ public class AllProjectsConfig extends VersionedMetaDataOnInit {
 
   public GroupList getGroups() {
     return groupList;
+  }
+
+  @Override
+  public Repository getRepository(String project) throws IOException {
+    return null;
   }
 
   @Override

@@ -16,23 +16,35 @@ package com.google.gerrit.server.git;
 
 import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.server.config.RepositoryConfig;
+import com.google.gerrit.server.git.backends.DfsRepositoryManager;
+import com.google.gerrit.server.git.backends.GitBackendConfig;
 import com.google.inject.Inject;
 
 public class GitRepositoryManagerModule extends LifecycleModule {
 
   private final RepositoryConfig repoConfig;
+  private GitBackendConfig gitBackendConfig;
 
   @Inject
-  public GitRepositoryManagerModule(RepositoryConfig repoConfig) {
+  public GitRepositoryManagerModule(RepositoryConfig repoConfig,
+                                    GitBackendConfig gitBackendConfig
+  ) {
     this.repoConfig = repoConfig;
+    this.gitBackendConfig = gitBackendConfig;
   }
 
   @Override
   protected void configure() {
-    if (repoConfig.getAllBasePaths().isEmpty()) {
-      install(new LocalDiskRepositoryManager.Module());
-    } else {
-      install(new MultiBaseLocalDiskRepositoryManager.Module());
+    switch (gitBackendConfig.getBackendType()) {
+      case FILE:
+        if (repoConfig.getAllBasePaths().isEmpty()) {
+          install(new LocalDiskRepositoryManager.Module());
+        } else {
+          install(new MultiBaseLocalDiskRepositoryManager.Module());
+        }
+        break;
+      default:
+        install(new DfsRepositoryManager.Module(gitBackendConfig));
     }
   }
 }

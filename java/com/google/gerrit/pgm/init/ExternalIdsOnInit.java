@@ -15,6 +15,7 @@
 package com.google.gerrit.pgm.init;
 
 import com.google.gerrit.pgm.init.api.AllUsersNameOnInitProvider;
+import com.google.gerrit.pgm.init.api.GitRepositoryManagerOnInit;
 import com.google.gerrit.pgm.init.api.InitFlags;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.GerritPersonIdentProvider;
@@ -25,12 +26,14 @@ import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
 import com.google.gerrit.server.git.MetaDataUpdate;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
+
 import org.eclipse.jgit.errors.ConfigInvalidException;
-import org.eclipse.jgit.internal.storage.file.FileRepository;
+import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.RepositoryCache.FileKey;
@@ -40,39 +43,39 @@ public class ExternalIdsOnInit {
   private final InitFlags flags;
   private final SitePaths site;
   private final String allUsers;
+  private GitRepositoryManagerOnInit repoManager;
 
   @Inject
-  public ExternalIdsOnInit(InitFlags flags, SitePaths site, AllUsersNameOnInitProvider allUsers) {
+  public ExternalIdsOnInit(InitFlags flags, SitePaths site, AllUsersNameOnInitProvider allUsers, GitRepositoryManagerOnInit repoManager) {
     this.flags = flags;
     this.site = site;
     this.allUsers = allUsers.get();
+    this.repoManager = repoManager;
   }
 
   public synchronized void insert(String commitMessage, Collection<ExternalId> extIds)
       throws OrmException, IOException, ConfigInvalidException {
-    File path = getPath();
-    if (path != null) {
-      try (Repository allUsersRepo = new FileRepository(path)) {
-        ExternalIdNotes extIdNotes = ExternalIdNotes.loadNoCacheUpdate(allUsersRepo);
-        extIdNotes.insert(extIds);
-        try (MetaDataUpdate metaDataUpdate =
-            new MetaDataUpdate(
-                GitReferenceUpdated.DISABLED, new Project.NameKey(allUsers), allUsersRepo)) {
-          PersonIdent serverIdent = new GerritPersonIdentProvider(flags.cfg).get();
-          metaDataUpdate.getCommitBuilder().setAuthor(serverIdent);
-          metaDataUpdate.getCommitBuilder().setCommitter(serverIdent);
-          metaDataUpdate.getCommitBuilder().setMessage(commitMessage);
-          extIdNotes.commit(metaDataUpdate);
-        }
+
+    try (Repository allUsersRepo = getAllUsersRepo()) {
+      ExternalIdNotes extIdNotes = ExternalIdNotes.loadNoCacheUpdate(allUsersRepo);
+      extIdNotes.insert(extIds);
+      try (MetaDataUpdate metaDataUpdate =
+               new MetaDataUpdate(
+                   GitReferenceUpdated.DISABLED, new Project.NameKey(allUsers), allUsersRepo)) {
+        PersonIdent serverIdent = new GerritPersonIdentProvider(flags.cfg).get();
+        metaDataUpdate.getCommitBuilder().setAuthor(serverIdent);
+        metaDataUpdate.getCommitBuilder().setCommitter(serverIdent);
+        metaDataUpdate.getCommitBuilder().setMessage(commitMessage);
+        extIdNotes.commit(metaDataUpdate);
       }
+    } catch (RepositoryNotFoundException ignored) {
     }
+
   }
 
-  private File getPath() {
-    Path basePath = site.resolve(flags.cfg.getString("gerrit", null, "basePath"));
-    if (basePath == null) {
-      throw new IllegalStateException("gerrit.basePath must be configured");
-    }
-    return FileKey.resolve(basePath.resolve(allUsers).toFile(), FS.DETECTED);
+  private Repository getAllUsersRepo() throws IOException {
+    return repoManager.openRepository(Project.NameKey.parse(allUsers));
   }
+
+
 }

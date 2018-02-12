@@ -25,6 +25,7 @@ import com.google.gerrit.common.Nullable;
 import com.google.gerrit.common.data.GroupReference;
 import com.google.gerrit.common.errors.NoSuchGroupException;
 import com.google.gerrit.pgm.init.api.AllUsersNameOnInitProvider;
+import com.google.gerrit.pgm.init.api.GitRepositoryManagerOnInit;
 import com.google.gerrit.pgm.init.api.InitFlags;
 import com.google.gerrit.reviewdb.client.Account;
 import com.google.gerrit.reviewdb.client.AccountGroup;
@@ -54,7 +55,6 @@ import java.sql.Timestamp;
 import java.util.List;
 import java.util.stream.Stream;
 import org.eclipse.jgit.errors.ConfigInvalidException;
-import org.eclipse.jgit.internal.storage.file.FileRepository;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.RepositoryCache;
@@ -75,13 +75,15 @@ public class GroupsOnInit {
   private final SitePaths site;
   private final String allUsers;
   private final GroupsMigration groupsMigration;
+  private GitRepositoryManagerOnInit repoManager;
 
   @Inject
-  public GroupsOnInit(InitFlags flags, SitePaths site, AllUsersNameOnInitProvider allUsers) {
+  public GroupsOnInit(InitFlags flags, SitePaths site, AllUsersNameOnInitProvider allUsers, GitRepositoryManagerOnInit repoManager) {
     this.flags = flags;
     this.site = site;
     this.allUsers = allUsers.get();
     this.groupsMigration = new GroupsMigration(flags.cfg);
+    this.repoManager = repoManager;
   }
 
   /**
@@ -108,7 +110,7 @@ public class GroupsOnInit {
       throws IOException, ConfigInvalidException, NoSuchGroupException {
     File allUsersRepoPath = getPathToAllUsersRepository();
     if (allUsersRepoPath != null) {
-      try (Repository allUsersRepo = new FileRepository(allUsersRepoPath)) {
+      try (Repository allUsersRepo = getAllUsersRepo()) {
         AccountGroup.UUID groupUuid = groupReference.getUUID();
         GroupConfig groupConfig = GroupConfig.loadForGroup(allUsersRepo, groupUuid);
         return groupConfig
@@ -150,7 +152,7 @@ public class GroupsOnInit {
     if (groupsMigration.readFromNoteDb()) {
       File allUsersRepoPath = getPathToAllUsersRepository();
       if (allUsersRepoPath != null) {
-        try (Repository allUsersRepo = new FileRepository(allUsersRepoPath)) {
+        try (Repository allUsersRepo = getAllUsersRepo()) {
           return GroupNameNotes.loadAllGroups(allUsersRepo).stream();
         }
       }
@@ -159,6 +161,10 @@ public class GroupsOnInit {
 
     return Streams.stream(db.accountGroups().all())
         .map(group -> new GroupReference(group.getGroupUUID(), group.getName()));
+  }
+
+  private Repository getAllUsersRepo() throws IOException {
+    return repoManager.openRepository(Project.NameKey.parse(allUsers));
   }
 
   /**
@@ -221,7 +227,7 @@ public class GroupsOnInit {
       throws IOException, ConfigInvalidException, NoSuchGroupException {
     File allUsersRepoPath = getPathToAllUsersRepository();
     if (allUsersRepoPath != null) {
-      try (Repository repository = new FileRepository(allUsersRepoPath)) {
+      try (Repository repository = getAllUsersRepo()) {
         addGroupMemberInNoteDb(repository, groupUuid, account);
       }
     }
