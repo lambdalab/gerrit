@@ -17,10 +17,13 @@ package com.google.gerrit.pgm.init.api;
 import com.google.gerrit.server.GerritPersonIdentProvider;
 import com.google.gerrit.server.config.SitePaths;
 import com.google.gerrit.server.git.VersionedMetaData;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+
 import org.eclipse.jgit.errors.ConfigInvalidException;
+import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.internal.storage.file.FileRepository;
 import org.eclipse.jgit.lib.CommitBuilder;
 import org.eclipse.jgit.lib.ObjectId;
@@ -41,6 +44,8 @@ public abstract class VersionedMetaDataOnInit extends VersionedMetaData {
   private final SitePaths site;
   private final String ref;
 
+  public abstract Repository getRepository(String project) throws IOException;
+
   protected VersionedMetaDataOnInit(InitFlags flags, SitePaths site, String project, String ref) {
     this.flags = flags;
     this.site = site;
@@ -54,12 +59,12 @@ public abstract class VersionedMetaDataOnInit extends VersionedMetaData {
   }
 
   public VersionedMetaDataOnInit load() throws IOException, ConfigInvalidException {
-    File path = getPath();
-    if (path != null) {
-      try (Repository repo = new FileRepository(path)) {
-        load(repo);
-      }
+
+    try (Repository repo = getRepository(project)) {
+      load(repo);
+    } catch (Exception ignored) {
     }
+
     return this;
   }
 
@@ -68,15 +73,12 @@ public abstract class VersionedMetaDataOnInit extends VersionedMetaData {
   }
 
   protected void save(PersonIdent ident, String msg) throws IOException, ConfigInvalidException {
-    File path = getPath();
-    if (path == null) {
-      throw new IOException(project + " does not exist.");
-    }
 
-    try (Repository repo = new FileRepository(path);
-        ObjectInserter i = repo.newObjectInserter();
-        ObjectReader r = repo.newObjectReader();
-        RevWalk rw = new RevWalk(r)) {
+
+    try (Repository repo = getRepository(project);
+         ObjectInserter i = repo.newObjectInserter();
+         ObjectReader r = repo.newObjectReader();
+         RevWalk rw = new RevWalk(r)) {
       inserter = i;
       reader = r;
 
@@ -100,8 +102,11 @@ public abstract class VersionedMetaDataOnInit extends VersionedMetaData {
         commit.addParentId(revision);
       }
       ObjectId newRevision = inserter.insert(commit);
+      inserter.flush();
       updateRef(repo, ident, newRevision, "commit: " + msg);
       revision = rw.parseCommit(newRevision);
+    } catch (RepositoryNotFoundException e) {
+      throw new IOException(project + " does not exist.");
     } finally {
       inserter = null;
       reader = null;
@@ -136,11 +141,5 @@ public abstract class VersionedMetaDataOnInit extends VersionedMetaData {
     }
   }
 
-  private File getPath() {
-    Path basePath = site.resolve(flags.cfg.getString("gerrit", null, "basePath"));
-    if (basePath == null) {
-      throw new IllegalStateException("gerrit.basePath must be configured");
-    }
-    return FileKey.resolve(basePath.resolve(project).toFile(), FS.DETECTED);
-  }
+
 }
