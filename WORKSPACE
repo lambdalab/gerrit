@@ -260,6 +260,17 @@ maven_jar(
     artifact = "log4j:log4j:1.2.17",
     sha1 = "5af35056b4d257e4b64b9e8069c0746e8b08629f",
 )
+maven_jar(
+    name = "apache_log4j_api",
+    artifact = "org.apache.logging.log4j:log4j-api:2.8.2",
+    sha1 = "e590eeb783348ce8ddef205b82127f9084d82bf3",
+)
+maven_jar(
+    name = "apache_log4j_core",
+    artifact = "org.apache.logging.log4j:log4j-core:2.8.2",
+    sha1 = "979fc0cf8460302e4ffbfe38c1b66a99450b0bb7",
+)
+
 
 maven_jar(
     name = "jsonevent_layout",
@@ -434,84 +445,84 @@ maven_jar(
 )
 
 # When upgrading Lucene, make sure it's compatible with Elasticsearch
-LUCENE_VERS = "5.5.4"
+LUCENE_VERS = "6.6.0"
 
 maven_jar(
     name = "lucene_core",
     artifact = "org.apache.lucene:lucene-core:" + LUCENE_VERS,
-    sha1 = "ab9c77e75cf142aa6e284b310c8395617bd9b19b",
+    sha1 = "918030732dcbddcf893043729ae2486a3a1fe743",
 )
 
 maven_jar(
     name = "lucene_analyzers_common",
     artifact = "org.apache.lucene:lucene-analyzers-common:" + LUCENE_VERS,
-    sha1 = "08ce9d34c8124c80e176e8332ee947480bbb9576",
+    sha1 = "00d3f77cf23f5887140f4f8870c77bdfffdf98d9",
 )
 
 maven_jar(
     name = "lucene_codecs",
     artifact = "org.apache.lucene:lucene-codecs:" + LUCENE_VERS,
-    sha1 = "afdad570668469b1734fbd32b8f98561561bed48",
+    sha1 = "1f85b2ece48663288f5b26666c9614f7a2733523",
 )
 
 maven_jar(
     name = "backward_codecs",
     artifact = "org.apache.lucene:lucene-backward-codecs:" + LUCENE_VERS,
-    sha1 = "a933f42e758c54c43083398127ea7342b54d8212",
+    sha1 = "5046c3e1d3cf5caec6a5fcf4bd2ffb5d0ed41005",
 )
 
 maven_jar(
     name = "lucene_misc",
     artifact = "org.apache.lucene:lucene-misc:" + LUCENE_VERS,
-    sha1 = "a74388857f73614e528ae44d742c60187cb55a5a",
+    sha1 = "cef312d4a3c91402057316b98999690bc9047712",
 )
 
 maven_jar(
     name = "lucene_queryparser",
     artifact = "org.apache.lucene:lucene-queryparser:" + LUCENE_VERS,
-    sha1 = "8a06fad4675473d98d93b61fea529e3f464bf69e",
+    sha1 = "a07fe44186311b4d0de7bab907fe6834e584aaa7",
 )
 
 maven_jar(
     name = "lucene_highlighter",
     artifact = "org.apache.lucene:lucene-highlighter:" + LUCENE_VERS,
-    sha1 = "433f53f03f1b14337c08d54e507a5410905376fa",
+    sha1 = "34da3b4eaa93a6b45420344723596d0767853c9b",
 )
 
 maven_jar(
     name = "lucene_join",
     artifact = "org.apache.lucene:lucene-join:" + LUCENE_VERS,
-    sha1 = "23f9a909a244ed3b28b37c5bb21a6e33e6c0a339",
+    sha1 = "08500d60797a5fae5e039a31fd830768220c0804",
 )
 
 maven_jar(
     name = "lucene_memory",
     artifact = "org.apache.lucene:lucene-memory:" + LUCENE_VERS,
-    sha1 = "4dbdc2e1a24837722294762a9edb479f79092ab9",
+    sha1 = "a59ce0e83a0c4b7213d929d17b1b72472d538f4d",
 )
 
 maven_jar(
     name = "lucene_sandbox",
     artifact = "org.apache.lucene:lucene-sandbox:" + LUCENE_VERS,
-    sha1 = "49498bbb2adc333e98bdca4bf6170ae770cbad11",
+    sha1 = "e8f37447688daf941e82e696bcfe6a5280d311b9",
 )
 
 maven_jar(
     name = "lucene_spatial",
     artifact = "org.apache.lucene:lucene-spatial:" + LUCENE_VERS,
-    sha1 = "0217d302dc0ef4d9b8b475ffe327d83c1e0ceba5",
+    sha1 = "b194415ea03efa41b5fb5302f52dadec78ddfcc5",
 )
 
 maven_jar(
     name = "lucene_suggest",
     artifact = "org.apache.lucene:lucene-suggest:" + LUCENE_VERS,
-    sha1 = "0f46dbb3229eed62dff10d008172c885e0e028c8",
+    sha1 = "de789eec7b6c1076b32e142e20f40e2294ea5eb2",
 )
 
 maven_jar(
     name = "lucene_queries",
     artifact = "org.apache.lucene:lucene-queries:" + LUCENE_VERS,
-    sha1 = "f915357b8b4b43742ab48f1401dedcaa12dfa37a",
+    sha1 = "216e4980f45b5532d59da6420fc37857314aef25",
 )
 
 maven_jar(
@@ -911,23 +922,23 @@ maven_jar(
 # When upgrading Elasticsearch, make sure it's compatible with Lucene
 maven_jar(
     name = "elasticsearch",
-    artifact = "org.elasticsearch:elasticsearch:2.4.6",
-    sha1 = "d2954e1173a608a9711f132d1768a676a8b1fb81",
+    artifact = "org.elasticsearch:elasticsearch:5.5.0",
+    sha1 = "53060a2e2373158645f0c42c51996af4914eedd7",
 )
 
 # Java REST client for Elasticsearch.
-JEST_VERSION = "2.4.0"
+JEST_VERSION = "5.3.3"
 
 maven_jar(
     name = "jest_common",
     artifact = "io.searchbox:jest-common:" + JEST_VERSION,
-    sha1 = "ea779ebe7c438a53dce431f85b0d4e1d8faee2ac",
+    sha1 = "10ff85d9cc65aaab4cc3ed01773674edff237c67",
 )
 
 maven_jar(
     name = "jest",
     artifact = "io.searchbox:jest:" + JEST_VERSION,
-    sha1 = "e2a604a584e6633545ac6b1fe99ef888ab96dae9",
+    sha1 = "9b362f5f0257b67ff2606be874c82cc4781e7736",
 )
 
 maven_jar(

@@ -66,7 +66,7 @@ public class ElasticProjectIndex extends AbstractElasticIndex<Project.NameKey, P
       Provider<ProjectCache> projectCache,
       JestClientBuilder clientBuilder,
       @Assisted Schema<ProjectData> schema) {
-    super(cfg, sitePaths, schema, clientBuilder, PROJECTS_PREFIX);
+    super(cfg, sitePaths, schema, clientBuilder, PROJECTS);
     this.projectCache = projectCache;
     this.mapping = new ProjectMapping(schema);
   }
@@ -75,7 +75,7 @@ public class ElasticProjectIndex extends AbstractElasticIndex<Project.NameKey, P
   public void replace(ProjectData projectState) throws IOException {
     Bulk bulk =
         new Bulk.Builder()
-            .defaultIndex(indexName)
+            .defaultIndex(fullIndexName)
             .defaultType(PROJECTS)
             .addAction(insert(PROJECTS, projectState))
             .refresh(true)
@@ -85,7 +85,7 @@ public class ElasticProjectIndex extends AbstractElasticIndex<Project.NameKey, P
       throw new IOException(
           String.format(
               "Failed to replace project %s in index %s: %s",
-              projectState.getProject().getName(), indexName, result.getErrorMessage()));
+              projectState.getProject().getName(), fullIndexName, result.getErrorMessage()));
     }
   }
 
@@ -117,7 +117,7 @@ public class ElasticProjectIndex extends AbstractElasticIndex<Project.NameKey, P
   protected ProjectData fromDocument(JsonObject json, Set<String> fields) {
     JsonElement source = json.get("_source");
     if (source == null) {
-      source = json.getAsJsonObject().get("fields");
+      source = json.getAsJsonObject().get("stored_fields");
     }
 
     Project.NameKey nameKey =

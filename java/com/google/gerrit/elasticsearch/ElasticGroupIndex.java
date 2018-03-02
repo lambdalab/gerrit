@@ -65,7 +65,7 @@ public class ElasticGroupIndex extends AbstractElasticIndex<AccountGroup.UUID, I
       Provider<GroupCache> groupCache,
       JestClientBuilder clientBuilder,
       @Assisted Schema<InternalGroup> schema) {
-    super(cfg, sitePaths, schema, clientBuilder, GROUPS_PREFIX);
+    super(cfg, sitePaths, schema, clientBuilder, GROUPS);
     this.groupCache = groupCache;
     this.mapping = new GroupMapping(schema);
   }
@@ -74,7 +74,7 @@ public class ElasticGroupIndex extends AbstractElasticIndex<AccountGroup.UUID, I
   public void replace(InternalGroup group) throws IOException {
     Bulk bulk =
         new Bulk.Builder()
-            .defaultIndex(indexName)
+            .defaultIndex(fullIndexName)
             .defaultType(GROUPS)
             .addAction(insert(GROUPS, group))
             .refresh(true)
@@ -84,7 +84,7 @@ public class ElasticGroupIndex extends AbstractElasticIndex<AccountGroup.UUID, I
       throw new IOException(
           String.format(
               "Failed to replace group %s in index %s: %s",
-              group.getGroupUUID().get(), indexName, result.getErrorMessage()));
+              group.getGroupUUID().get(), fullIndexName, result.getErrorMessage()));
     }
   }
 
@@ -116,7 +116,7 @@ public class ElasticGroupIndex extends AbstractElasticIndex<AccountGroup.UUID, I
   protected InternalGroup fromDocument(JsonObject json, Set<String> fields) {
     JsonElement source = json.get("_source");
     if (source == null) {
-      source = json.getAsJsonObject().get("fields");
+      source = json.getAsJsonObject().get("stored_fields");
     }
 
     AccountGroup.UUID uuid =

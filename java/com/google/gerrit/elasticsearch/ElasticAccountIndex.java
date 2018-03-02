@@ -68,7 +68,7 @@ public class ElasticAccountIndex extends AbstractElasticIndex<Account.Id, Accoun
       Provider<AccountCache> accountCache,
       JestClientBuilder clientBuilder,
       @Assisted Schema<AccountState> schema) {
-    super(cfg, sitePaths, schema, clientBuilder, ACCOUNTS_PREFIX);
+    super(cfg, sitePaths, schema, clientBuilder, ACCOUNTS);
     this.accountCache = accountCache;
     this.mapping = new AccountMapping(schema);
   }
@@ -77,7 +77,7 @@ public class ElasticAccountIndex extends AbstractElasticIndex<Account.Id, Accoun
   public void replace(AccountState as) throws IOException {
     Bulk bulk =
         new Bulk.Builder()
-            .defaultIndex(indexName)
+            .defaultIndex(fullIndexName)
             .defaultType(ACCOUNTS)
             .addAction(insert(ACCOUNTS, as))
             .refresh(true)
@@ -87,7 +87,7 @@ public class ElasticAccountIndex extends AbstractElasticIndex<Account.Id, Accoun
       throw new IOException(
           String.format(
               "Failed to replace account %s in index %s: %s",
-              as.getAccount().getId(), indexName, result.getErrorMessage()));
+              as.getAccount().getId(), fullIndexName, result.getErrorMessage()));
     }
   }
 
@@ -119,7 +119,7 @@ public class ElasticAccountIndex extends AbstractElasticIndex<Account.Id, Accoun
   protected AccountState fromDocument(JsonObject json, Set<String> fields) {
     JsonElement source = json.get("_source");
     if (source == null) {
-      source = json.getAsJsonObject().get("fields");
+      source = json.getAsJsonObject().get("stored_fields");
     }
 
     Account.Id id = new Account.Id(source.getAsJsonObject().get(ID.getName()).getAsInt());

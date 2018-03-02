@@ -58,6 +58,7 @@ import io.searchbox.core.search.sort.Sort;
 import io.searchbox.indices.CreateIndex;
 import io.searchbox.indices.DeleteIndex;
 import io.searchbox.indices.IndicesExists;
+
 import java.io.IOException;
 import java.sql.Timestamp;
 import java.util.Collection;
@@ -68,6 +69,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Function;
+
 import org.apache.commons.codec.binary.Base64;
 import org.eclipse.jgit.lib.Config;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -78,6 +80,8 @@ import org.slf4j.LoggerFactory;
 
 abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
   private static final Logger log = LoggerFactory.getLogger(AbstractElasticIndex.class);
+  private static final int ES_WINDOW_LIMIT = 10000;
+  private final String indexName;
 
   protected static <T> List<T> decodeProtos(
       JsonObject doc, String fieldName, ProtobufCodec<T> codec) {
@@ -93,7 +97,7 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
   private final Schema<V> schema;
   private final SitePaths sitePaths;
 
-  protected final String indexName;
+  protected final String fullIndexName;
   protected final JestHttpClient client;
   protected final Gson gson;
   protected final ElasticQueryBuilder queryBuilder;
@@ -108,13 +112,14 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
     this.schema = schema;
     this.gson = new GsonBuilder().setFieldNamingPolicy(LOWER_CASE_WITH_UNDERSCORES).create();
     this.queryBuilder = new ElasticQueryBuilder();
-    this.indexName =
-        String.format(
-            "%s%s%04d",
-            Strings.nullToEmpty(cfg.getString("elasticsearch", null, "prefix")),
-            indexName,
-            schema.getVersion());
+    this.indexName = indexName;
+    this.fullIndexName = String.format(
+        "%s%s_%04d",
+        Strings.nullToEmpty(cfg.getString("elasticsearch", null, "prefix")),
+        indexName,
+        schema.getVersion());
     this.client = clientBuilder.build();
+
   }
 
   @Override
@@ -140,27 +145,27 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
       throw new IOException(
           String.format(
               "Failed to delete change %s in index %s: %s",
-              c, indexName, result.getErrorMessage()));
+              c, fullIndexName, result.getErrorMessage()));
     }
   }
 
   @Override
   public void deleteAll() throws IOException {
     // Delete the index, if it exists.
-    JestResult result = client.execute(new IndicesExists.Builder(indexName).build());
+    JestResult result = client.execute(new IndicesExists.Builder(fullIndexName).build());
     if (result.isSucceeded()) {
-      result = client.execute(new DeleteIndex.Builder(indexName).build());
+      result = client.execute(new DeleteIndex.Builder(fullIndexName).build());
       if (!result.isSucceeded()) {
         throw new IOException(
-            String.format("Failed to delete index %s: %s", indexName, result.getErrorMessage()));
+            String.format("Failed to delete index %s: %s", fullIndexName, result.getErrorMessage()));
       }
     }
 
     // Recreate the index.
-    result = client.execute(new CreateIndex.Builder(indexName).settings(getMappings()).build());
+    result = client.execute(new CreateIndex.Builder(fullIndexName).settings(getMappings()).build());
     if (!result.isSucceeded()) {
       String error =
-          String.format("Failed to create index %s: %s", indexName, result.getErrorMessage());
+          String.format("Failed to create index %s: %s", fullIndexName, result.getErrorMessage());
       throw new IOException(error);
     }
   }
@@ -173,13 +178,13 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
 
   protected Delete delete(String type, K c) {
     String id = c.toString();
-    return new Delete.Builder(id).index(indexName).type(type).build();
+    return new Delete.Builder(id).index(fullIndexName).type(type).build();
   }
 
   protected io.searchbox.core.Index insert(String type, V v) throws IOException {
     String id = getId(v);
     String doc = toDocument(v);
-    return new io.searchbox.core.Index.Builder(doc).index(indexName).type(type).id(id).build();
+    return new io.searchbox.core.Index.Builder(doc).index(fullIndexName).type(type).id(id).build();
   }
 
   private static boolean shouldAddElement(Object element) {
@@ -197,6 +202,10 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
       } else {
         Object element = Iterables.getOnlyElement(values.getValues(), "");
         if (shouldAddElement(element)) {
+          // todo: find a better hack
+          if(element instanceof Timestamp) {
+            element = element.toString().replace(' ', 'T');
+          }
           builder.field(name, element);
         }
       }
@@ -252,18 +261,19 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
         throws QueryParseException {
       this.opts = opts;
       QueryBuilder qb = queryBuilder.toQueryBuilder(p);
+
       SearchSourceBuilder searchSource =
           new SearchSourceBuilder()
               .query(qb)
               .from(opts.start())
-              .size(opts.limit())
-              .fields(Lists.newArrayList(opts.fields()));
+              .size(Math.min(ES_WINDOW_LIMIT, opts.limit()))
+              .fetchSource(opts.fields().toArray(new String[0]),new String[0]);
 
       search =
           new Search.Builder(searchSource.toString())
-              .addType(types)
+              .addTypes(types)
               .addSort(sorts)
-              .addIndex(indexName)
+              .addIndex(fullIndexName)
               .build();
     }
 

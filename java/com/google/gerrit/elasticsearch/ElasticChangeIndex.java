@@ -103,7 +103,7 @@ class ElasticChangeIndex extends AbstractElasticIndex<Change.Id, ChangeData>
       SitePaths sitePaths,
       JestClientBuilder clientBuilder,
       @Assisted Schema<ChangeData> schema) {
-    super(cfg, sitePaths, schema, clientBuilder, CHANGES_PREFIX);
+    super(cfg, sitePaths, schema, clientBuilder, "changes");
     this.db = db;
     this.changeDataFactory = changeDataFactory;
     mapping = new ChangeMapping(schema);
@@ -128,7 +128,7 @@ class ElasticChangeIndex extends AbstractElasticIndex<Change.Id, ChangeData>
 
     Bulk bulk =
         new Bulk.Builder()
-            .defaultIndex(indexName)
+            .defaultIndex(fullIndexName)
             .defaultType("changes")
             .addAction(insert(insertIndex, cd))
             .addAction(delete(deleteIndex, cd.getId()))
@@ -139,7 +139,7 @@ class ElasticChangeIndex extends AbstractElasticIndex<Change.Id, ChangeData>
       throw new IOException(
           String.format(
               "Failed to replace change %s in index %s: %s",
-              cd.getId(), indexName, result.getErrorMessage()));
+              cd.getId(), fullIndexName, result.getErrorMessage()));
     }
   }
 
@@ -159,9 +159,9 @@ class ElasticChangeIndex extends AbstractElasticIndex<Change.Id, ChangeData>
         ImmutableList.of(
             new Sort(ChangeField.UPDATED.getName(), Sorting.DESC),
             new Sort(ChangeField.LEGACY_ID.getName(), Sorting.DESC));
-    for (Sort sort : sorts) {
-      sort.setIgnoreUnmapped();
-    }
+    /*for (Sort sort : sorts) {
+      sort.setUnmappedType();
+    }*/
     QueryOptions filteredOpts = opts.filterFields(IndexUtils::changeFields);
     return new ElasticQuerySource(p, filteredOpts, indexes, sorts);
   }
@@ -185,7 +185,7 @@ class ElasticChangeIndex extends AbstractElasticIndex<Change.Id, ChangeData>
   protected ChangeData fromDocument(JsonObject json, Set<String> fields) {
     JsonElement sourceElement = json.get("_source");
     if (sourceElement == null) {
-      sourceElement = json.getAsJsonObject().get("fields");
+      sourceElement = json.getAsJsonObject().get("stored_fields");
     }
     JsonObject source = sourceElement.getAsJsonObject();
     JsonElement c = source.get(ChangeField.CHANGE.getName());

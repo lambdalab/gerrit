@@ -12,6 +12,7 @@ java_library(
         ":jsr166e",
         ":netty",
         ":t-digest",
+        ":apache_log4j",
         "//lib/jackson:jackson-core",
         "//lib/jackson:jackson-dataformat-cbor",
         "//lib/jackson:jackson-dataformat-smile",
@@ -24,6 +25,11 @@ java_library(
         "//lib/lucene:lucene-spatial",
         "//lib/lucene:lucene-suggest",
     ],
+)
+
+java_library(
+    name = "apache_log4j",
+    exports = ["@apache_log4j_core//jar","@apache_log4j_api//jar"]
 )
 
 java_library(

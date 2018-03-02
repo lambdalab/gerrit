@@ -85,7 +85,7 @@ final class WrappableSearcherManager extends ReferenceManager<IndexSearcher> {
       searcherFactory = new SearcherFactory();
     }
     this.searcherFactory = searcherFactory;
-    current = getSearcher(searcherFactory, DirectoryReader.open(writer, applyAllDeletes));
+    current = getSearcher(searcherFactory, DirectoryReader.open(writer, applyAllDeletes, applyAllDeletes));
   }
 
   /**
