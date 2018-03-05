@@ -31,6 +31,7 @@ public final class MagicBranch {
   public static final String NEW_DRAFT_CHANGE = "refs/drafts/";
   // TODO(xchangcheng): remove after migrating tools which are using this magic branch.
   public static final String NEW_PUBLISH_CHANGE = "refs/publish/";
+  public static final String REVIEWS_CHANGE = "refs/reviews/";
 
   /** Extracts the destination from a ref name */
   public static String getDestBranchName(String refName) {
@@ -39,6 +40,8 @@ public final class MagicBranch {
       magicBranch = NEW_DRAFT_CHANGE;
     } else if (refName.startsWith(NEW_PUBLISH_CHANGE)) {
       magicBranch = NEW_PUBLISH_CHANGE;
+    } else if (refName.startsWith(REVIEWS_CHANGE)) {
+      return refName.substring("refs/".length());
     }
     return refName.substring(magicBranch.length());
   }
@@ -47,7 +50,8 @@ public final class MagicBranch {
   public static boolean isMagicBranch(String refName) {
     return refName.startsWith(NEW_DRAFT_CHANGE)
         || refName.startsWith(NEW_PUBLISH_CHANGE)
-        || refName.startsWith(NEW_CHANGE);
+        || refName.startsWith(NEW_CHANGE)
+        || refName.startsWith(REVIEWS_CHANGE);
   }
 
   /** Returns the ref name prefix for a magic branch, {@code null} if the branch is not magic */
@@ -60,6 +64,9 @@ public final class MagicBranch {
     }
     if (refName.startsWith(NEW_CHANGE)) {
       return NEW_CHANGE;
+    }
+    if (refName.startsWith(REVIEWS_CHANGE)) {
+      return REVIEWS_CHANGE;
     }
     return null;
   }
