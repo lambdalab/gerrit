@@ -78,7 +78,7 @@ import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
+public abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
   private static final Logger log = LoggerFactory.getLogger(AbstractElasticIndex.class);
   private static final int ES_WINDOW_LIMIT = 10000;
   private final String indexName;
@@ -102,7 +102,7 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
   protected final Gson gson;
   protected final ElasticQueryBuilder queryBuilder;
 
-  AbstractElasticIndex(
+  public AbstractElasticIndex(
       @GerritServerConfig Config cfg,
       SitePaths sitePaths,
       Schema<V> schema,
@@ -203,7 +203,7 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
         Object element = Iterables.getOnlyElement(values.getValues(), "");
         if (shouldAddElement(element)) {
           // todo: find a better hack
-          if(element instanceof Timestamp) {
+          if (element instanceof Timestamp) {
             element = element.toString().replace(' ', 'T');
           }
           builder.field(name, element);
@@ -247,16 +247,16 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
     return new FieldBundle(rawFields);
   }
 
-  protected class ElasticQuerySource implements DataSource<V> {
+  public class ElasticQuerySource implements DataSource<V> {
     private final QueryOptions opts;
     private final Search search;
 
-    ElasticQuerySource(Predicate<V> p, QueryOptions opts, String type, Sort sort)
+    public ElasticQuerySource(Predicate<V> p, QueryOptions opts, String type, Sort sort)
         throws QueryParseException {
       this(p, opts, ImmutableList.of(type), ImmutableList.of(sort));
     }
 
-    ElasticQuerySource(
+    public ElasticQuerySource(
         Predicate<V> p, QueryOptions opts, Collection<String> types, Collection<Sort> sorts)
         throws QueryParseException {
       this.opts = opts;
@@ -267,7 +267,7 @@ abstract class AbstractElasticIndex<K, V> implements Index<K, V> {
               .query(qb)
               .from(opts.start())
               .size(Math.min(ES_WINDOW_LIMIT, opts.limit()))
-              .fetchSource(opts.fields().toArray(new String[0]),new String[0]);
+              .fetchSource(opts.fields().toArray(new String[0]), new String[0]);
 
       search =
           new Search.Builder(searchSource.toString())

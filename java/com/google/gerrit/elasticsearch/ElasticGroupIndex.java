@@ -92,7 +92,7 @@ public class ElasticGroupIndex extends AbstractElasticIndex<AccountGroup.UUID, I
   public DataSource<InternalGroup> getSource(Predicate<InternalGroup> p, QueryOptions opts)
       throws QueryParseException {
     Sort sort = new Sort(GroupField.UUID.getName(), Sort.Sorting.ASC);
-    sort.setIgnoreUnmapped();
+//    sort.setIgnoreUnmapped();
     return new ElasticQuerySource(p, opts.filterFields(IndexUtils::groupFields), GROUPS, sort);
   }
 

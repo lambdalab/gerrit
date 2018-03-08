@@ -20,8 +20,8 @@ import com.google.gerrit.index.FieldType;
 import com.google.gerrit.index.Schema;
 import java.util.Map;
 
-class ElasticMapping {
-  static MappingProperties createMapping(Schema<?> schema) {
+public class ElasticMapping {
+  public static MappingProperties createMapping(Schema<?> schema) {
     ElasticMapping.Builder mapping = new ElasticMapping.Builder();
     for (FieldDef<?, ?> field : schema.getFields().values()) {
       String name = field.getName();
@@ -88,11 +88,11 @@ class ElasticMapping {
     }
   }
 
-  static class MappingProperties {
+  public static class MappingProperties {
     Map<String, FieldProperties> properties;
   }
 
-  static class FieldProperties {
+  public static class FieldProperties {
     String type;
     String index;
     String format;

@@ -95,7 +95,7 @@ public class ElasticAccountIndex extends AbstractElasticIndex<Account.Id, Accoun
   public DataSource<AccountState> getSource(Predicate<AccountState> p, QueryOptions opts)
       throws QueryParseException {
     Sort sort = new Sort(AccountField.ID.getName(), Sorting.ASC);
-    sort.setIgnoreUnmapped();
+//    sort.setIgnoreUnmapped();
     return new ElasticQuerySource(p, opts.filterFields(IndexUtils::accountFields), ACCOUNTS, sort);
   }
 

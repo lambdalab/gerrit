@@ -23,7 +23,7 @@ import io.searchbox.client.http.JestHttpClient;
 import java.util.concurrent.TimeUnit;
 
 @Singleton
-class JestClientBuilder {
+public class JestClientBuilder {
   private final ElasticConfiguration cfg;
 
   @Inject

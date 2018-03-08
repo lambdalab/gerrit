@@ -93,7 +93,7 @@ public class ElasticProjectIndex extends AbstractElasticIndex<Project.NameKey, P
   public DataSource<ProjectData> getSource(Predicate<ProjectData> p, QueryOptions opts)
       throws QueryParseException {
     Sort sort = new Sort(ProjectField.NAME.getName(), Sorting.ASC);
-    sort.setIgnoreUnmapped();
+//    sort.setIgnoreUnmapped();
     return new ElasticQuerySource(p, opts.filterFields(IndexUtils::projectFields), PROJECTS, sort);
   }
 
