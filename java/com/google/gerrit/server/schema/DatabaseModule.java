@@ -21,14 +21,42 @@ import com.google.gerrit.reviewdb.server.ReviewDb;
 import com.google.gerrit.server.notedb.ChangeBundleReader;
 import com.google.gerrit.server.notedb.GwtormChangeBundleReader;
 import com.google.gwtorm.jdbc.Database;
+import com.google.gwtorm.schema.SequenceModel;
+import com.google.gwtorm.schema.sql.DialectMySQL;
+import com.google.gwtorm.schema.sql.SqlDialect;
 import com.google.gwtorm.server.SchemaFactory;
 import com.google.inject.Key;
 import com.google.inject.TypeLiteral;
+
+import java.lang.reflect.Field;
+import java.util.List;
 
 /** Loads the database with standard dependencies. */
 public class DatabaseModule extends FactoryModule {
   @Override
   protected void configure() {
+
+    //patch for tidb
+    try {
+      Field field = SqlDialect.class.getDeclaredField("DIALECTS");
+      field.setAccessible(true);
+      List<SqlDialect> dialects = (List<SqlDialect>) field.get(null);
+      for (int i = 0; i < dialects.size(); i++) {
+        SqlDialect sqlDialect = dialects.get(i);
+        if(sqlDialect instanceof DialectMySQL){
+          dialects.set(i, new DialectMySQL(){
+            @Override
+            public String getCreateSequenceSql(final SequenceModel seq) {
+              return "CREATE TABLE " +
+                  seq.getSequenceName() +
+                  "(s  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE)";
+            }
+          });
+        }
+      }
+    } catch (Exception ignored) {
+    }
+    
     TypeLiteral<SchemaFactory<ReviewDb>> schemaFactory =
         new TypeLiteral<SchemaFactory<ReviewDb>>() {};
     TypeLiteral<Database<ReviewDb>> database = new TypeLiteral<Database<ReviewDb>>() {};
